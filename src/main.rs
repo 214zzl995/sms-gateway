@@ -6,6 +6,8 @@ use flexi_logger::{
 };
 use structopt::StructOpt;
 
+mod modem;
+
 #[tokio::main]
 async fn main() {
     let param = Param::from_args();
