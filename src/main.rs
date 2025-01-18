@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use db::db_init;
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
     WriteMode,
@@ -7,14 +8,27 @@ use flexi_logger::{
 use structopt::StructOpt;
 
 mod config;
+mod db;
 mod modem;
 
 #[tokio::main]
 async fn main() {
     let param = Param::from_args();
-    log_init(&param.log_path).unwrap();
-    let config = config::AppConfig::load(&param.config_file).unwrap();
-    
+    if let Err(err) = log_init(&param.log_path) {
+        eprintln!("Error: {}", err);
+        std::process::exit(1);
+    };
+    if let Err(err) = db_init().await {
+        eprintln!("Error: {}", err);
+        std::process::exit(1);
+    }
+    let config = match config::AppConfig::load(&param.config_file) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            std::process::exit(1);
+        }
+    };
 }
 
 #[derive(Debug, StructOpt)]
@@ -23,7 +37,7 @@ pub struct Param {
         short = "l",
         long = "log",
         parse(from_os_str),
-        default_value = "/var/log/sms-gateway"
+        default_value = "/var/sms-gateway/log"
     )]
     pub log_path: PathBuf,
 
