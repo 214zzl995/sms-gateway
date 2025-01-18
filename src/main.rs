@@ -6,26 +6,34 @@ use flexi_logger::{
 };
 use structopt::StructOpt;
 
+mod config;
 mod modem;
 
 #[tokio::main]
 async fn main() {
     let param = Param::from_args();
     log_init(&param.log_path).unwrap();
+    let config = config::AppConfig::load(&param.config_file).unwrap();
+    
 }
 
 #[derive(Debug, StructOpt)]
 pub struct Param {
     #[structopt(
         short = "l",
-        long = "workdir",
+        long = "log",
         parse(from_os_str),
         default_value = "/var/log/sms-gateway"
     )]
     pub log_path: PathBuf,
 
-    #[structopt(short = "c", long = "conifg", parse(from_os_str))]
-    pub conf_file: Option<PathBuf>,
+    #[structopt(
+        short = "c",
+        long = "config",
+        parse(from_os_str),
+        default_value = "/etc/sms-gateway/config.toml"
+    )]
+    pub config_file: PathBuf,
 }
 
 fn log_init(log_path: &PathBuf) -> anyhow::Result<()> {
