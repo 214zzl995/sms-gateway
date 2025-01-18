@@ -1,0 +1,15 @@
+[settings]
+serverHost = "0.0.0.0"
+serverPort = 8951
+# username = "admin"   # optional
+# password = "password" # optional
+retries = 3
+bufferSize = 10
+bufferLow = 4
+msgTimeout = 5
+msgCountOut = 10
+msgTimeoutLong = 20
+
+[device.default]
+comPort = "/dev/ttyUSB2"
+baudRate = 115200
