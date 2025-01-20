@@ -8,15 +8,15 @@ use std::collections::HashMap;
 
 /// SMS struct, representing a single SMS message
 #[derive(Debug, FromRow, Deserialize)]
-struct SMS {
-    uuid: String,
-    message: String,
-    mobile: String,
-    status: i32,
-    retries: i32,
-    device: Option<String>,
-    created_at: Option<String>,
-    updated_at: Option<String>,
+pub struct SMS {
+    pub uuid: String,
+    pub message: String,
+    pub mobile: String,
+    pub status: i32,
+    pub retries: i32,
+    pub device: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 /// Initialize the database

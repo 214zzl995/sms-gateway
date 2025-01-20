@@ -34,7 +34,7 @@ async fn main() {
     let mut modems = HashMap::new();
 
     for (name, device) in &config.devices {
-        let modem = match modem::Modem::new(&device.com_port, device.baud_rate) {
+        let modem = match modem::Modem::new(&device.com_port, device.baud_rate, name) {
             Ok(mut modem) => {
                 if let Err(err) = modem.init_modem().await {
                     eprintln!("Error: {}", err);

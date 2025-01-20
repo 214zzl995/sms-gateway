@@ -35,10 +35,12 @@ pub struct SMS {
     sender: String,    // Sender's phone number
     timestamp: String, // Timestamp (e.g., "25/01/15,15:19:52+32")
     message: String,   // SMS content
+    device: String,
 }
 
 /// GSM Modem
 pub struct Modem {
+    name: String,
     com_port: String,
     baud_rate: u32,
     port: Mutex<Box<dyn SerialPort + Send>>,
@@ -69,11 +71,12 @@ impl SMS {
 
 impl Modem {
     /// Create a new instance of GSMModem
-    pub fn new(com_port: &str, baud_rate: u32) -> io::Result<Self> {
+    pub fn new(com_port: &str, baud_rate: u32, name: &str) -> io::Result<Self> {
         let builder = serialport::new(com_port, baud_rate);
 
         let port = builder.timeout(Duration::from_secs(1)).open()?;
         let modem = Modem {
+            name: name.to_string(),
             com_port: com_port.to_string(),
             baud_rate,
             port: Mutex::new(port),
@@ -160,7 +163,7 @@ impl Modem {
         info!("--- ReadSMS: {}", response);
 
         // Parse the response into SMS structs
-        let mut sms_list = parse_sms_response(&response);
+        let mut sms_list = parse_sms_response(&response, &self.com_port);
         sms_list.iter_mut().for_each(|sms| sms.decode_message());
         Ok(sms_list)
     }
@@ -186,7 +189,7 @@ impl Modem {
     }
 }
 /// Parse the response from AT+CMGL command into a list of SMS structs
-fn parse_sms_response(response: &str) -> Vec<SMS> {
+fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
     let mut sms_list = Vec::new();
     let lines: Vec<&str> = response.lines().collect();
 
@@ -219,6 +222,7 @@ fn parse_sms_response(response: &str) -> Vec<SMS> {
                         sender,
                         timestamp,
                         message,
+                        device: device.to_string(),
                     });
                     i += 1; // Skip the message line
                 }
@@ -229,3 +233,4 @@ fn parse_sms_response(response: &str) -> Vec<SMS> {
 
     sms_list
 }
+
