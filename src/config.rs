@@ -5,7 +5,7 @@ use std::{collections::HashMap, path::Path};
 
 /// `Settings` struct, mapping the `settings` section in the TOML config file
 #[derive(Debug, Deserialize)]
-struct Settings {
+pub struct Settings {
     server_host: String,
     server_port: u16,
     retries: u32,
@@ -14,20 +14,21 @@ struct Settings {
     msg_timeout: u32,
     msg_count_out: u32,
     msg_timeout_long: u32,
+    pub read_sms_frequency: u64,
 }
 
 /// `Device` struct, mapping the `device` section in the TOML config file
 #[derive(Debug, Deserialize)]
-struct Device {
-    com_port: String,
-    baud_rate: u32,
+pub struct Device {
+    pub com_port: String,
+    pub baud_rate: u32,
 }
 
 /// `AppConfig` struct, containing both `settings` and `devices` sections
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
-    settings: Settings,
-    devices: HashMap<String, Device>,
+    pub settings: Settings,
+    pub devices: HashMap<String, Device>,
 }
 
 impl AppConfig {

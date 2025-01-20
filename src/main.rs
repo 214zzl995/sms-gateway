@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use db::db_init;
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
     WriteMode,
 };
+use modem::SmsType;
 use structopt::StructOpt;
 
 mod config;
@@ -29,6 +30,57 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    let mut modems = HashMap::new();
+
+    for (name, device) in &config.devices {
+        let modem = match modem::Modem::new(&device.com_port, device.baud_rate) {
+            Ok(mut modem) => {
+                if let Err(err) = modem.init_modem().await {
+                    eprintln!("Error: {}", err);
+                    std::process::exit(1);
+                }
+                modem
+            }
+            Err(err) => {
+                eprintln!("Error: {}", err);
+                std::process::exit(1);
+            }
+        };
+        modems.insert(name.clone(), modem);
+    }
+    let modes_arc = Arc::new(modems);
+
+    tokio::spawn(read_sms_worker(
+        modes_arc.clone(),
+        config.settings.read_sms_frequency,
+    ));
+
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+    }
+}
+
+async fn read_sms_worker(devices: Arc<HashMap<String, modem::Modem>>, read_sms_frequency: u64) {
+    let modem_keys = devices.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
+    loop {
+        for key in &modem_keys {
+            let modem = devices.get(key).unwrap();
+            match modem.read_sms(SmsType::RecUnread).await {
+                Ok(smss) => {
+                    for sms in smss {
+                        log::info!("SMS: {:?}", sms);
+                    }
+                }
+                Err(err) => {
+                    log::error!("Read SMS error: {}", err);
+                    continue;
+                }
+            };
+        }
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(read_sms_frequency)).await;
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -72,5 +124,3 @@ fn log_init(log_path: &PathBuf) -> anyhow::Result<()> {
         .start()?;
     Ok(())
 }
-
-
