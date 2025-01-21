@@ -44,7 +44,6 @@ pub struct Modem {
     com_port: String,
     baud_rate: u32,
     port: Mutex<Box<dyn SerialPort + Send>>,
-    service_center: String,
 }
 
 impl SMS {
@@ -80,7 +79,6 @@ impl Modem {
             com_port: com_port.to_string(),
             baud_rate,
             port: Mutex::new(port),
-            service_center: String::new(),
         };
 
         Ok(modem)
@@ -93,7 +91,6 @@ impl Modem {
         self.send_command_with_ok("AT+WIND=0\r\n").await?; // disable notifications
         self.send_command_with_ok("AT+CMGF=1\r\n").await?; // switch to TEXT mode
 
-        self.get_service_center().await?;
         Ok(())
     }
 
@@ -172,21 +169,6 @@ impl Modem {
     fn transpose_log(&self, input: &str) -> String {
         input.replace("\r\n", "\\r\\n").replace("\r", "\\r")
     }
-
-    async fn get_service_center(&mut self) -> io::Result<String> {
-        let response = self.send_command_with_ok("AT+CSCA?\r\n").await?;
-        let parts: Vec<&str> = response.split(',').collect();
-        if parts.len() >= 2 {
-            let service_center = parts[1].trim_matches('"').to_string();
-            self.service_center = service_center.clone();
-            Ok(service_center)
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Failed to get service center",
-            ))
-        }
-    }
 }
 /// Parse the response from AT+CMGL command into a list of SMS structs
 fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
@@ -233,4 +215,3 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
 
     sms_list
 }
-
