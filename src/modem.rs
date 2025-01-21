@@ -97,7 +97,7 @@ impl Modem {
     /// Send a command and expect an "OK" response.
     /// If the response does not contain "OK", return an error.
     async fn send_command_with_ok(&self, command: &str) -> io::Result<String> {
-        self.send(command);
+        self.send(command).await?;
         let response = self.read_to_string().await?;
 
         // Check if the response contains "OK"
