@@ -1,15 +1,17 @@
 [settings]
-serverHost = "0.0.0.0"
-serverPort = 8951
+server_host = "0.0.0.0"
+server_port = 8951
 # username = "admin"   # optional
 # password = "password" # optional
 retries = 3
-bufferSize = 10
-bufferLow = 4
-msgTimeout = 5
-msgCountOut = 10
-msgTimeoutLong = 20
+buffer_size = 10
+buffer_low = 4
+msg_timeout = 5
+msg_count_out = 10
+msg_timeout_long = 20
+read_sms_frequency = 10
 
-[device.default]
-comPort = "/dev/ttyUSB2"
-baudRate = 115200
+[devices.default]
+com_port = "/dev/ttyUSB2"
+baud_rate = 115200
+
