@@ -9,7 +9,7 @@ buffer_low = 4
 msg_timeout = 5
 msg_count_out = 10
 msg_timeout_long = 20
-read_sms_frequency = 10
+read_sms_frequency = 999999
 
 [devices.default]
 com_port = "/dev/ttyUSB2"

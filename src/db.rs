@@ -1,174 +1,131 @@
-use anyhow::{Context, Result};
-use log::info;
+use anyhow::Result;
 use serde::Deserialize;
-use sqlx::any::AnyPoolOptions;
-use sqlx::migrate::{MigrateDatabase, Migrator};
-use sqlx::{AnyPool, FromRow, Row};
-use std::collections::HashMap;
+use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::{FromRow, QueryBuilder, migrate::Migrator};
+use std::sync::OnceLock;
 
-/// SMS struct, representing a single SMS message
+const MAX_BATCH_SIZE: usize = 500;
+
+static POOL: OnceLock<SqlitePool> = OnceLock::new();
+
+/// SMS 结构体表示单条短信
 #[derive(Debug, FromRow, Deserialize)]
 pub struct SMS {
-    pub uuid: String,
+    pub id: Option<i64>,      // SQLite 自增ID
+    #[sqlx(default)]          // 客户端使用的序号（数据库不存储）
+    pub index: u32,
+    pub sender: String,
+    pub timestamp: i64,
     pub message: String,
-    pub mobile: String,
-    pub status: i32,
-    pub retries: i32,
-    pub device: Option<String>,
-    pub created_at: Option<String>,
-    pub updated_at: Option<String>,
+    pub device: String,
+    pub local_send: bool,
 }
 
-/// Initialize the database
-pub async fn db_init() -> Result<AnyPool> {
-    sqlx::any::install_default_drivers();
-    let db_path = "sqlite:///var/sms-gateway/data.db";
+impl SMS {
+    /// 查询全部记录
+    pub async fn all() -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let sms_list = sqlx::query_as(
+            r#"
+            SELECT id, sender, timestamp, message, device, 
+                   local_send 
+            FROM sms 
+            ORDER BY timestamp DESC
+            "#
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(sms_list)
+    }
 
-    if !sqlx::Any::database_exists(db_path).await? {
-        sqlx::Any::create_database(db_path).await?;
-    };
+    /// 分页查询
+    pub async fn paginate(page: u32, per_page: u32) -> Result<Vec<Self>> {
+        if page == 0 {
+            return Err(anyhow::anyhow!("页码必须大于0"));
+        }
+        let offset = (page - 1) * per_page;
+        let pool = get_pool()?;
+        
+        let sms_list = sqlx::query_as(
+            r#"
+            SELECT id, sender, timestamp, message, device, 
+                   local_send 
+            FROM sms 
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            "#
+        )
+        .bind(per_page as i32)
+        .bind(offset as i32)
+        .fetch_all(pool)
+        .await?;
+        
+        Ok(sms_list)
+    }
 
-    let pool = AnyPoolOptions::new()
-        .max_connections(5)
-        .connect(&db_path)
+    /// 插入单条记录
+    pub async fn insert(&self) -> Result<()> {
+        let pool = get_pool()?;
+        
+        sqlx::query(
+            r#"
+            INSERT INTO sms (sender, timestamp, message, device, local_send)
+            VALUES (?, ?, ?, ?, ?)
+            "#
+        )
+        .bind(&self.sender)
+        .bind(self.timestamp)
+        .bind(&self.message)
+        .bind(&self.device)
+        .bind(self.local_send) // 布尔转整数
+        .execute(pool)
         .await?;
 
-    let _backend_name = pool.acquire().await?.backend_name();
+        Ok(())
+    }
 
-    let migrate: Migrator = sqlx::migrate!("./migrations/sqlite");
-    migrate.run(&pool).await?;
+    /// 批量插入（优化版）
+    pub async fn bulk_insert(records: &[Self]) -> Result<()> {
+        let pool = get_pool()?;
+        let mut query_builder = QueryBuilder::new(
+            "INSERT INTO sms (sender, timestamp, message, device, local_send) "
+        );
 
-    Ok(pool)
+        query_builder.push_values(records, |mut b, sms| {
+            b.push_bind(&sms.sender)
+             .push_bind(sms.timestamp)
+             .push_bind(&sms.message)
+             .push_bind(&sms.device)
+             .push_bind(sms.local_send); // 批量转换布尔值
+        });
+
+        query_builder.build().execute(pool).await?;
+        Ok(())
+    }
 }
 
-/// Insert a new SMS message into the database
-async fn insert_message(pool: &AnyPool, sms: &SMS) -> Result<()> {
-    info!("Inserting message: {:?}", sms);
-    sqlx::query(
-        r#"
-        INSERT INTO messages (uuid, message, mobile)
-        VALUES (?, ?, ?)
-        "#,
-    )
-    .bind(&sms.uuid)
-    .bind(&sms.message)
-    .bind(&sms.mobile)
-    .execute(pool)
-    .await
-    .context("Failed to insert message")?;
+/// 初始化SQLite数据库
+pub async fn db_init() -> Result<()> {
+    let db_path = "sqlite:///var/lib/sms-gateway/data.db";
+    
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(db_path)
+        .await?;
+
+    // 执行迁移
+    Migrator::new(std::path::Path::new("./migrations"))
+        .await?
+        .run(&pool)
+        .await?;
+
+    POOL.set(pool)
+        .map_err(|_| anyhow::anyhow!("数据库连接池初始化失败"))?;
 
     Ok(())
 }
 
-/// Update the status of an SMS message
-async fn update_message_status(pool: &AnyPool, sms: &SMS) -> Result<()> {
-    info!("Updating message status: {:?}", sms);
-    sqlx::query(
-        r#"
-        UPDATE messages
-        SET status = ?, retries = ?, device = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE uuid = ?
-        "#,
-    )
-    .bind(sms.status)
-    .bind(sms.retries)
-    .bind(&sms.device)
-    .bind(&sms.uuid)
-    .execute(pool)
-    .await
-    .context("Failed to update message status")?;
-
-    Ok(())
-}
-
-/// Fetch pending SMS messages (status != processed and retries < limit)
-async fn get_pending_messages(pool: &AnyPool, buffer_size: i32) -> Result<Vec<SMS>> {
-    info!("Fetching pending messages");
-    let messages = sqlx::query_as::<_, SMS>(
-        r#"
-        SELECT uuid, message, mobile, status, retries
-        FROM messages
-        WHERE status != ? AND retries < ?
-        LIMIT ?
-        "#,
-    )
-    .bind(1) // SMSProcessed status
-    .bind(3) // SMSRetryLimit
-    .bind(buffer_size)
-    .fetch_all(pool)
-    .await
-    .context("Failed to fetch pending messages")?;
-
-    Ok(messages)
-}
-
-/// Fetch SMS messages with a custom filter
-async fn get_messages(pool: &AnyPool, filter: &str) -> Result<Vec<SMS>> {
-    info!("Fetching messages with filter: {}", filter);
-    let query = format!(
-        r#"
-        SELECT uuid, message, mobile, status, retries, device, created_at, updated_at
-        FROM messages {}
-        "#,
-        filter
-    );
-    let messages = sqlx::query_as::<_, SMS>(&query)
-        .fetch_all(pool)
-        .await
-        .context("Failed to fetch messages")?;
-
-    Ok(messages)
-}
-
-/// Fetch the count of SMS messages sent in the last 7 days
-async fn get_last_7_days_message_count(pool: &AnyPool) -> Result<HashMap<String, i32>> {
-    info!("Fetching last 7 days message count");
-    let rows = sqlx::query(
-        r#"
-        SELECT strftime('%Y-%m-%d', created_at) as datestamp, COUNT(id) as messagecount
-        FROM messages
-        GROUP BY datestamp
-        ORDER BY datestamp DESC
-        LIMIT 7
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .context("Failed to fetch last 7 days message count")?;
-
-    let mut day_count = HashMap::new();
-    for row in rows {
-        let day: String = row.get("datestamp");
-        let count: i32 = row.get("messagecount");
-        day_count.insert(day, count);
-    }
-
-    Ok(day_count)
-}
-
-/// Fetch a summary of SMS messages by status
-async fn get_status_summary(pool: &AnyPool) -> Result<Vec<i32>> {
-    info!("Fetching status summary");
-    let rows = sqlx::query(
-        r#"
-        SELECT status, COUNT(id) as messagecount
-        FROM messages
-        GROUP BY status
-        ORDER BY status
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .context("Failed to fetch status summary")?;
-
-    let mut status_summary = vec![0; 3]; // Assuming 3 statuses
-    for row in rows {
-        let status: i32 = row.get("status");
-        let count: i32 = row.get("messagecount");
-        if status >= 0 && status < 3 {
-            status_summary[status as usize] = count;
-        }
-    }
-
-    Ok(status_summary)
+/// 获取连接池
+fn get_pool() -> Result<&'static SqlitePool> {
+    POOL.get().ok_or(anyhow::anyhow!("数据库未初始化"))
 }

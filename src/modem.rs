@@ -1,8 +1,12 @@
+use chrono::{DateTime, Local, NaiveDateTime};
 use log::{debug, error, info};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 use tokio::sync::Mutex;
+use uuid::timestamp;
+
+use crate::db::SMS;
 
 /// Enum representing the type of SMS messages
 #[derive(Debug, Clone, Copy)]
@@ -27,45 +31,12 @@ impl SmsType {
     }
 }
 
-/// SMS struct representing a single SMS message
-#[derive(Debug)]
-pub struct SMS {
-    index: u32,        // SMS index
-    status: String,    // SMS status (e.g., "REC READ")
-    sender: String,    // Sender's phone number
-    timestamp: String, // Timestamp (e.g., "25/01/15,15:19:52+32")
-    message: String,   // SMS content
-    device: String,
-}
-
 /// GSM Modem
 pub struct Modem {
     name: String,
     com_port: String,
     baud_rate: u32,
     port: Mutex<Box<dyn SerialPort + Send>>,
-}
-
-impl SMS {
-    fn decode_message(&mut self) {
-        let mut decoded = String::new();
-        let mut chars = self.message.chars().collect::<Vec<_>>();
-
-        // Process the encoded string in chunks of 4 characters
-        while chars.len() >= 4 {
-            // Take 4 characters as a UCS2 code point
-            let chunk: String = chars.drain(0..4).collect();
-            let code_point = u32::from_str_radix(&chunk, 16).unwrap_or(0);
-
-            // Convert the code point to a Unicode character
-            if let Some(c) = char::from_u32(code_point) {
-                decoded.push(c);
-            } else {
-                decoded.push('�'); // Replacement character for invalid code points
-            }
-        }
-        self.message = decoded;
-    }
 }
 
 impl Modem {
@@ -125,7 +96,7 @@ impl Modem {
 
     /// Send data to the serial port
     async fn send(&self, command: &str) -> io::Result<()> {
-        debug!("device:{} Send: {}", self.name, self.transpose_log(command));
+        debug!("Device:{} Send: {}", self.name, self.transpose_log(command));
         let port = &mut self.port.lock().await;
         let _ = port.write_all(command.as_bytes())?;
         port.flush()?;
@@ -134,11 +105,11 @@ impl Modem {
 
     /// Read data from the serial port into a string
     async fn read_to_string(&self) -> io::Result<String> {
-        let mut buffer = [0u8; 1024]; 
+        let mut buffer = [0u8; 1024];
         let port = &mut self.port.lock().await;
         let bytes_read = port.read(&mut buffer)?;
         let output = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
-        debug!("Read: {}", self.transpose_log(&output));
+        debug!("Device:{} Read: {}", self.name, self.transpose_log(&output));
         Ok(output)
     }
 
@@ -163,8 +134,7 @@ impl Modem {
         debug!("ReadSMS: {}", response);
 
         // Parse the response into SMS structs
-        let mut sms_list = parse_sms_response(&response, &self.com_port);
-        sms_list.iter_mut().for_each(|sms| sms.decode_message());
+        let sms_list = parse_sms_response(&response, &self.com_port);
         Ok(sms_list)
     }
 
@@ -193,21 +163,30 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
                     .parse::<u32>()
                     .unwrap_or(0);
 
-                let status = parts[1].trim_matches('"').to_string();
+                let _status = parts[1].trim_matches('"').to_string();
                 let sender = parts[2].trim_matches('"').to_string();
+
                 let timestamp =
                     parts[4].trim_matches('"').to_string() + " " + parts[5].trim_matches('"');
+                let format = "%y/%m/%d %H:%M:%S";
+                let datetime_str = timestamp.split('+').next().unwrap_or(&timestamp);
+                let timestamp = NaiveDateTime::parse_from_str(datetime_str, format).unwrap();
+                let timestamp = timestamp.and_utc().timestamp();
+
+                info!("{}", timestamp.to_string());
 
                 // Parse the message content (next line)
                 if i + 1 < lines.len() {
-                    let message = lines[i + 1].trim().to_string();
+                    let message = decode_message(lines[i + 1].trim());
+
                     sms_list.push(SMS {
+                        id: None,
                         index,
-                        status,
                         sender,
                         timestamp,
                         message,
                         device: device.to_string(),
+                        local_send: false,
                     });
                     i += 1; // Skip the message line
                 }
@@ -217,4 +196,24 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
     }
 
     sms_list
+}
+
+fn decode_message(message: &str) -> String {
+    let mut decoded = String::new();
+    let mut chars = message.chars().collect::<Vec<_>>();
+
+    // Process the encoded string in chunks of 4 characters
+    while chars.len() >= 4 {
+        // Take 4 characters as a UCS2 code point
+        let chunk: String = chars.drain(0..4).collect();
+        let code_point = u32::from_str_radix(&chunk, 16).unwrap_or(0);
+
+        // Convert the code point to a Unicode character
+        if let Some(c) = char::from_u32(code_point) {
+            decoded.push(c);
+        } else {
+            decoded.push('�'); // Replacement character for invalid code points
+        }
+    }
+    decoded
 }
