@@ -75,7 +75,7 @@ async fn read_sms_worker(devices: Arc<HashMap<String, modem::Modem>>, read_sms_f
     loop {
         for key in &modem_keys {
             let modem = devices.get(key).unwrap();
-            match modem.read_sms(SmsType::All).await {
+            match modem.read_sms(SmsType::RecUnread).await {
                 Ok(smss) => {
                     for sms in &smss {
                         log::info!("SMS: {:?}", sms);

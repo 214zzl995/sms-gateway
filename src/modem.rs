@@ -171,9 +171,6 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
                 let format = "%y/%m/%d %H:%M:%S";
                 let datetime_str = timestamp.split('+').next().unwrap_or(&timestamp);
                 let timestamp = NaiveDateTime::parse_from_str(datetime_str, format).unwrap();
-                let timestamp = timestamp.and_utc().timestamp();
-
-                info!("{}", timestamp.to_string());
 
                 // Parse the message content (next line)
                 if i + 1 < lines.len() {

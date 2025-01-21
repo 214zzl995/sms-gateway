@@ -2,8 +2,8 @@
 CREATE TABLE sms (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sender TEXT NOT NULL,
-    timestamp INTEGER NOT NULL CHECK(timestamp > 0),
-    message TEXT NOT NULL CHECK(LENGTH(message) <= 4096),
+    timestamp timestamp NOT NULL,
+    message TEXT NOT NULL,
     device TEXT NOT NULL,
     local_send BOOLEAN NOT NULL
 );
