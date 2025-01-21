@@ -17,9 +17,7 @@ toml = "0.8"
 sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "chrono",
-    "any",
     "sqlite",
-    "mysql"
 ] }
 structopt = "0.3"
 uuid = { version = "1", features = ["v4"] }
