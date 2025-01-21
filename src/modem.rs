@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{debug, error, info};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
 use std::time::Duration;
@@ -73,7 +73,9 @@ impl Modem {
     pub fn new(com_port: &str, baud_rate: u32, name: &str) -> io::Result<Self> {
         let builder = serialport::new(com_port, baud_rate);
 
-        let port = builder.timeout(Duration::from_secs(1)).open()?;
+        let port = builder.timeout(Duration::from_secs(10)).open()?;
+        info!("device:{},com:{} connected successfully", name, com_port);
+
         let modem = Modem {
             name: name.to_string(),
             com_port: com_port.to_string(),
@@ -88,7 +90,6 @@ impl Modem {
     pub async fn init_modem(&mut self) -> io::Result<()> {
         self.send_command_with_ok("ATE0\r\n").await?; // echo off
         self.send_command_with_ok("AT+CMEE=1\r\n").await?; // useful error messages
-        self.send_command_with_ok("AT+WIND=0\r\n").await?; // disable notifications
         self.send_command_with_ok("AT+CMGF=1\r\n").await?; // switch to TEXT mode
 
         Ok(())
@@ -124,7 +125,7 @@ impl Modem {
 
     /// Send data to the serial port
     async fn send(&self, command: &str) -> io::Result<()> {
-        info!("--- Send: {}", self.transpose_log(command));
+        debug!("device:{} Send: {}", self.name, self.transpose_log(command));
         let port = &mut self.port.lock().await;
         let _ = port.write_all(command.as_bytes())?;
         port.flush()?;
@@ -133,15 +134,17 @@ impl Modem {
 
     /// Read data from the serial port into a string
     async fn read_to_string(&self) -> io::Result<String> {
-        let mut output = String::new();
-        let _ = &mut self.port.lock().await.read_to_string(&mut output)?;
-        info!("--- Read: {}", self.transpose_log(&output));
+        let mut buffer = [0u8; 1024]; 
+        let port = &mut self.port.lock().await;
+        let bytes_read = port.read(&mut buffer)?;
+        let output = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+        debug!("Read: {}", self.transpose_log(&output));
         Ok(output)
     }
 
     /// Send SMS
     async fn send_sms(&mut self, mobile: &str, message: &str) -> io::Result<String> {
-        info!("--- SendSMS {}: {}", mobile, message);
+        info!("SendSMS {}: {}", mobile, message);
 
         self.send_command_without_ok(&format!("AT+CMGS=\"{}\"\r", mobile))
             .await?; // should return ">"
@@ -157,7 +160,7 @@ impl Modem {
 
         // Read the response
         let response = self.send_command_with_ok(&command).await?;
-        info!("--- ReadSMS: {}", response);
+        debug!("ReadSMS: {}", response);
 
         // Parse the response into SMS structs
         let mut sms_list = parse_sms_response(&response, &self.com_port);
