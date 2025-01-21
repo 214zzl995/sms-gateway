@@ -42,8 +42,7 @@ impl AppConfig {
 
         // Deserialize the config file into the `AppConfig` struct
         let app_config: AppConfig = config
-            .try_deserialize()
-            .context("Failed to deserialize config")?;
+            .try_deserialize()?;
 
         // Validate the configuration
         test_config(&app_config)?;

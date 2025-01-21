@@ -23,6 +23,15 @@ async fn main() {
         eprintln!("Error: {}", err);
         std::process::exit(1);
     }
+    #[cfg(debug_assertions)]
+    let config = match config::AppConfig::load(&PathBuf::from("./config.toml")) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            std::process::exit(1);
+        }
+    };
+    #[cfg(not(debug_assertions))]
     let config = match config::AppConfig::load(&param.config_file) {
         Ok(config) => config,
         Err(err) => {
@@ -30,6 +39,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
 
     let mut modems = HashMap::new();
 
@@ -57,7 +67,7 @@ async fn main() {
     ));
 
     loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        //tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
     }
 }
 
