@@ -9,9 +9,12 @@ use log::{error, LevelFilter};
 use modem::SmsType;
 use structopt::StructOpt;
 
+mod api;
 mod config;
 mod db;
 mod modem;
+
+pub type Devices = Arc<HashMap<String, modem::Modem>>;
 
 #[tokio::main]
 async fn main() {
@@ -59,18 +62,26 @@ async fn main() {
         };
         modems.insert(name.clone(), modem);
     }
-    let modes_arc = Arc::new(modems);
+    let modems_arc = Arc::new(modems);
 
     tokio::spawn(read_sms_worker(
-        modes_arc.clone(),
+        modems_arc.clone(),
         config.settings.read_sms_frequency,
     ));
 
-    loop {
-    }
+    match api::run_api(
+        modems_arc,
+        &config.settings.server_host,
+        &config.settings.server_port,
+    )
+    .await
+    {
+        Ok(_) => {},
+        Err(_) => {},
+    };
 }
 
-async fn read_sms_worker(devices: Arc<HashMap<String, modem::Modem>>, read_sms_frequency: u64) {
+async fn read_sms_worker(devices: Devices, read_sms_frequency: u64) {
     let modem_keys = devices.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
     loop {
         for key in &modem_keys {
@@ -81,8 +92,8 @@ async fn read_sms_worker(devices: Arc<HashMap<String, modem::Modem>>, read_sms_f
                         log::info!("SMS: {:?}", sms);
                     }
 
-                    if let Err(err) = SMS::bulk_insert(&smss).await{
-                        error!("{}",err);
+                    if let Err(err) = SMS::bulk_insert(&smss).await {
+                        error!("{}", err);
                     }
                 }
                 Err(err) => {

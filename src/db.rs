@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{migrate::Migrator, FromRow, QueryBuilder};
@@ -11,7 +11,7 @@ const MAX_BATCH_SIZE: usize = 500;
 static POOL: OnceLock<SqlitePool> = OnceLock::new();
 
 /// Represents a single SMS message
-#[derive(Debug, FromRow, Deserialize)]
+#[derive(Debug, FromRow, Deserialize, Serialize)]
 pub struct SMS {
     pub id: Option<i64>, // SQLite auto-increment ID
     #[sqlx(default)] // Client-side sequence number (not stored in DB)
@@ -40,8 +40,20 @@ impl SMS {
         Ok(sms_list)
     }
 
+    pub async fn count() -> Result<i64> {
+        let pool = get_pool()?;
+        let count = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM sms
+            "#,
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
+    }
+
     /// Retrieves paginated SMS records
-    pub async fn paginate(page: u32, per_page: u32) -> Result<Vec<Self>> {
+    pub async fn paginate(page: u32, per_page: u32)  -> Result<(Vec<Self>, i64)> {
         if page == 0 {
             return Err(anyhow::anyhow!("Page number must be greater than 0"));
         }
@@ -62,7 +74,9 @@ impl SMS {
         .fetch_all(pool)
         .await?;
 
-        Ok(sms_list)
+        let total = SMS::count().await?;
+
+        Ok((sms_list, total))
     }
 
     /// Inserts a single SMS record into the database

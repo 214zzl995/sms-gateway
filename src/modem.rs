@@ -1,10 +1,9 @@
-use chrono::{DateTime, Local, NaiveDateTime};
+use chrono::NaiveDateTime;
 use log::{debug, error, info};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use uuid::timestamp;
 
 use crate::db::SMS;
 
@@ -33,9 +32,9 @@ impl SmsType {
 
 /// GSM Modem
 pub struct Modem {
-    name: String,
-    com_port: String,
-    baud_rate: u32,
+    pub name: String,
+    pub com_port: String,
+    pub baud_rate: u32,
     port: Mutex<Box<dyn SerialPort + Send>>,
 }
 
@@ -89,7 +88,7 @@ impl Modem {
 
     /// Send a command without expecting an "OK" response.
     /// Simply return the response as a string.
-    async fn send_command_without_ok(&mut self, command: &str) -> io::Result<String> {
+    async fn send_command_without_ok(&self, command: &str) -> io::Result<String> {
         self.send(command).await?;
         self.read_to_string().await
     }
@@ -114,7 +113,7 @@ impl Modem {
     }
 
     /// Send SMS
-    async fn send_sms(&mut self, mobile: &str, message: &str) -> io::Result<String> {
+    pub async fn send_sms(&self, mobile: &str, message: &str) -> io::Result<String> {
         info!("SendSMS {}: {}", mobile, message);
 
         self.send_command_without_ok(&format!("AT+CMGS=\"{}\"\r", mobile))
@@ -134,7 +133,7 @@ impl Modem {
         debug!("ReadSMS: {}", response);
 
         // Parse the response into SMS structs
-        let sms_list = parse_sms_response(&response, &self.com_port);
+        let sms_list = parse_sms_response(&response, &self.name);
         Ok(sms_list)
     }
 

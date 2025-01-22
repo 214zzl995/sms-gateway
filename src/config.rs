@@ -6,8 +6,8 @@ use std::{collections::HashMap, path::Path};
 /// `Settings` struct, mapping the `settings` section in the TOML config file
 #[derive(Debug, Deserialize)]
 pub struct Settings {
-    server_host: String,
-    server_port: u16,
+    pub server_host: String,
+    pub server_port: u16,
     retries: u32,
     buffer_size: u32,
     buffer_low: u32,
