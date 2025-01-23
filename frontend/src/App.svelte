@@ -1,47 +1,106 @@
 <script>
-  import svelteLogo from './assets/svelte.svg'
-  import viteLogo from '/vite.svg'
-  import Counter from './lib/Counter.svelte'
+  import DeviceList from "./lib/DeviceList.svelte";
+  import MessageList from "./lib/MessageList.svelte";
+  import ModemIcon from "./lib/ModemIcon.svelte";
+  import { devices, messages } from "./stores/devices";
+
+  let selectedDevice = null;
+
+  const selectDevice = (device) => (selectedDevice = device);
+  const showAllMessages = () => (selectedDevice = null);
 </script>
 
-<main>
-  <div>
-    <a href="https://vite.dev" target="_blank" rel="noreferrer">
-      <img src={viteLogo} class="logo" alt="Vite Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank" rel="noreferrer">
-      <img src={svelteLogo} class="logo svelte" alt="Svelte Logo" />
-    </a>
-  </div>
-  <h1>Vite + Svelte</h1>
+<div class="container">
+  <!-- 左侧导航 -->
+  <div class="nav">
+    <div class="nav-top">
+      <div class="icon" aria-label="设备图标"></div>
+      <span>SMS</span>
+    </div>
 
-  <div class="card">
-    <Counter />
+    <button on:click={() => alert("发送指令逻辑")}>Send SMS</button>
+
+    <DeviceList {devices} {selectedDevice} {selectDevice} />
   </div>
 
-  <p>
-    Check out <a href="https://github.com/sveltejs/kit#readme" target="_blank" rel="noreferrer">SvelteKit</a>, the official Svelte app framework powered by Vite!
-  </p>
+  <!-- 主内容区域 -->
+  <div class="main">
+    <div class="main-header">
+      {selectedDevice ? `${selectedDevice.name}` : "All"}
+      {#if selectedDevice}
+        <div class="modem-info">
+          <div>信号强度:</div>
+        </div>
+      {/if}
+    </div>
 
-  <p class="read-the-docs">
-    Click on the Vite and Svelte logos to learn more
-  </p>
-</main>
+    <MessageList {messages} />
+  </div>
+</div>
 
-<style>
-  .logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: filter 300ms;
+<style global>
+  .icon {
+    width: 32px;
+    height: 32px;
+    background: #495057;
+    border-radius: 6px;
   }
-  .logo:hover {
-    filter: drop-shadow(0 0 2em #646cffaa);
+  :global(:root) {
+    --primary-color: #0d6efd;
+    --bg-color: #f8f9fa;
+    --border-color: #dee2e6;
   }
-  .logo.svelte:hover {
-    filter: drop-shadow(0 0 2em #ff3e00aa);
+
+  .container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    font-family: Arial, sans-serif;
   }
-  .read-the-docs {
-    color: #888;
+
+  .nav {
+    width: 280px;
+    background: var(--bg-color);
+    padding: 20px;
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .nav-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  button {
+    padding: 12px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: #0b5ed7;
+  }
+
+  .main {
+    flex: 1;
+    padding: 24px;
+    background: white;
+  }
+
+  .main-header {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    color: #212529;
+    display: flex;
+    justify-content: space-between;
   }
 </style>
