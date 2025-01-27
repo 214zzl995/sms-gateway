@@ -8,6 +8,8 @@ use std::{collections::HashMap, path::Path};
 pub struct Settings {
     pub server_host: String,
     pub server_port: u16,
+    pub username:Option<String>,
+    pub password:Option<String>,
     retries: u32,
     buffer_size: u32,
     buffer_low: u32,

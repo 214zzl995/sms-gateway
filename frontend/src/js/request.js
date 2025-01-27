@@ -13,7 +13,7 @@ const request = (/** @type {string} */ partialUrl, /** @type {any} */ body, /** 
     const needContentType = ['POST', 'PUT', 'GET'].includes(method.toUpperCase());
     const url = baseUrl + partialUrl + (query ? queryString(query) : '');
 
-    if (contentType == "application/json"){
+    if (contentType == "application/json") {
         body = JSON.stringify(body)
     }
 
@@ -32,10 +32,18 @@ const request = (/** @type {string} */ partialUrl, /** @type {any} */ body, /** 
         cache: "default" // 是否缓存请求资源 可选值有 default 、 no-store 、 reload 、 no-cache 、 force-cache 或者 only-if-cached 。
     }
 
-    return new Promise((success, fail) => fetch(url, requestConfig).then(response => {
-        success(response.json());
-        fail(response);
-    }))
+    return new Promise((resolve, reject) => {
+        fetch(url, requestConfig)
+            .then(async (response) => {
+                const data = await response.json().catch(() => null); 
+                if (response.ok) {
+                    resolve({ status: response.status, data }); 
+                } else {
+                    reject({ status: response.status, data }); 
+                }
+            })
+            .catch((error) => reject(error));
+    });
 }
 
 class Fetch {
@@ -47,11 +55,11 @@ class Fetch {
         /**
          * @type {() => any}
          */
-        this.before = before; //请求前拦截器
+        this.before = before; 
         /**
          * @type {() => any}
          */
-        this.after = after; //请求后拦截器
+        this.after = after; 
     }
 
     /**
@@ -64,15 +72,33 @@ class Fetch {
      * @param {Record<string, string>} [headers]
      */
     _request(partialUrl, body, query, method, mode, contentType, headers) {
-        this.before && this.before();	// 执行请求前拦截器。
-        const promise = request(partialUrl, body, query, method, mode, contentType, headers);
-        promise.finally(() => this.after && this.after()); // 执行请求后拦截器。
+        this.before && this.before();	
+        const mergedHeaders = { ...this._getAuthHeader(), ...headers };
+        const promise = request(partialUrl, body, query, method, mode, contentType, mergedHeaders);
+        promise
+            .then(response => {
+                if (response.status === 401) {
+                    localStorage.removeItem("auth");
+                    window.location.reload(); 
+                }
+                return response;
+            })
+            .finally(() => this.after?.()); 
         return promise;
+    }
+
+    _getAuthHeader() {
+        const auth = sessionStorage.getItem("auth");
+        if (auth) {
+            const { token } = JSON.parse(auth);
+            return { 'Authorization': `Basic ${token}` };
+        }
+        return {};
     }
 
     /**
      * @param {string} partialUrl
-     * @param {any} query
+     * @param {Record<string, string | number>} query
      * @param {string} contentType
      * @param {Record<string, string>} [headers]
      */
@@ -111,8 +137,8 @@ class Fetch {
 }
 
 const FetchApi = {
-    get: (/** @type {string} */ partialUrl, /** @type {string} */ query, /** @type {string} */ contentType,/** @type {Record<string, string>} */ headers) => {
-        return new Fetch().get(partialUrl, query, contentType,headers);
+    get: (/** @type {string} */ partialUrl,/** @type {Record<string, string | number>} */ query, /** @type {string} */ contentType,/** @type {Record<string, string>} */ headers) => {
+        return new Fetch().get(partialUrl, query, contentType, headers);
     },
     delete: (/** @type {string} */ partialUrl, /** @type {any} */ query) => {
         return new Fetch().delete(partialUrl, query);

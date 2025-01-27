@@ -30,10 +30,10 @@
 
     {#if isExpanded}
         <div transition:slide={{ duration: 300 }}>
-            {#each $devices as device (device.id)}
+            {#each $devices as device (device.name)}
                 <div class="list-item">
                     <div
-                        class=" {selectedDevice?.id === device.id
+                        class=" {selectedDevice?.name === device.name
                             ? 'selected'
                             : ''}"
                         role="button"
@@ -49,6 +49,11 @@
                                 <ModemIcon />
                                 {device.name}
                             </div>
+                            <div class="device-connect">
+                                {device.com_port}
+                                {device.baud_rate}
+                            </div>
+                            
                         </div>
                     </div>
                 </div>
@@ -81,7 +86,7 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         cursor: pointer;
         transition: transform 0.2s;
-        height: 1.6rem;
+        height: 3rem;
         font-size: 0.85rem;
     }
 
@@ -97,13 +102,23 @@
 
     .device-info {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
+        align-items: start;
+        justify-content: center;
+        flex-direction: column;
+        height: 100%;
+        gap:0.2rem;
+    
     }
 
     .device-name {
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        font-size: 1rem;
+    }
+
+    .device-connect{
+        margin-top: 0.2rem;
+        color: rgb(121, 121, 121);
     }
 </style>

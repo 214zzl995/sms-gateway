@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{Local, NaiveDateTime, Timelike};
 use log::{debug, error, info};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
@@ -65,36 +65,32 @@ impl Modem {
         Ok(())
     }
 
-    /// Send a command and expect an "OK" response.
-    /// If the response does not contain "OK", return an error.
+    /// Send command and expect "OK" response (maintains continuous lock)
     async fn send_command_with_ok(&self, command: &str) -> io::Result<String> {
-        self.send(command).await?;
-        let response = self.read_to_string().await?;
+        // Acquire lock at the start and maintain through entire operation
+        let mut port = self.port.lock().await;
 
-        // Check if the response contains "OK"
+        // Combined atomic send-receive operation
+        self.send_locked(command, &mut port)?;
+        let response = self.read_to_string_locked(&mut port)?;
+
         if response.contains("OK\r\n") {
             Ok(response)
         } else {
-            error!(
-                "--- Expected OK, but got: {}",
-                self.transpose_log(&response)
-            );
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("Expected OK, but got: {}", response),
-            ))
+            error!("Command failed: {}", response);
+            Err(io::Error::new(io::ErrorKind::Other, "Missing OK response"))
         }
     }
 
-    /// Send a command without expecting an "OK" response.
-    /// Simply return the response as a string.
-    async fn send_command_without_ok(&self, command: &str) -> io::Result<String> {
-        self.send(command).await?;
-        self.read_to_string().await
-    }
+    /// Send command without checking OK response (maintains continuous lock)
+    async fn _send_command_without_ok(&self, command: &str) -> io::Result<String> {
+        let mut port = self.port.lock().await;
 
+        self.send_locked(command, &mut port)?;
+        self.read_to_string_locked(&mut port)
+    }
     /// Send data to the serial port
-    async fn send(&self, command: &str) -> io::Result<()> {
+    async fn _send(&self, command: &str) -> io::Result<()> {
         debug!("Device:{} Send: {}", self.name, self.transpose_log(command));
         let port = &mut self.port.lock().await;
         let _ = port.write_all(command.as_bytes())?;
@@ -103,7 +99,7 @@ impl Modem {
     }
 
     /// Read data from the serial port into a string
-    async fn read_to_string(&self) -> io::Result<String> {
+    async fn _read_to_string(&self) -> io::Result<String> {
         let mut buffer = [0u8; 1024];
         let port = &mut self.port.lock().await;
         let bytes_read = port.read(&mut buffer)?;
@@ -112,15 +108,100 @@ impl Modem {
         Ok(output)
     }
 
-    /// Send SMS
+    /// Send SMS message with enhanced response handling
     pub async fn send_sms(&self, mobile: &str, message: &str) -> io::Result<String> {
-        info!("SendSMS {}: {}", mobile, message);
+        info!("Sending SMS to {}: {}", mobile, message);
 
-        self.send_command_without_ok(&format!("AT+CMGS=\"{}\"\r", mobile))
-            .await?; // should return ">"
+        // Phase 1: Initialize SMS sending process
+        let mut port = self.port.lock().await;
+        self.send_locked(&format!("AT+CMGS=\"{}\"\r", mobile), &mut port)?;
 
-        // EOM CTRL-Z = 26
-        self.send_command_with_ok(&format!("{}\x1A", message)).await
+        let mut prompt_response = String::new();
+        let start_time = std::time::Instant::now();
+        while start_time.elapsed() < Duration::from_secs(5) {
+            let mut buffer = [0u8; 1];
+            if port.read(&mut buffer).is_ok() {
+                prompt_response.push(buffer[0] as char);
+                if prompt_response.ends_with("> ") {
+                    break;
+                }
+            }
+        }
+
+        // Validate prompt reception
+        if !prompt_response.contains("> ") {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "SMS prompt not received",
+            ));
+        }
+
+        // Phase 2: Send message content with EOM (CTRL-Z)
+        let full_message = format!("{}\x1A", message);
+        self.send_locked(&full_message, &mut port)?;
+
+        // Phase 3: Handle multi-line response
+        let mut final_response = String::new();
+        let mut ok_received = false;
+        let mut cmgs_received = false;
+        let timeout = Duration::from_secs(10);
+        let start_time = std::time::Instant::now();
+
+        // Read response chunks until timeout
+        while start_time.elapsed() < timeout {
+            let mut buffer = [0u8; 128];
+            match port.read(&mut buffer) {
+                Ok(bytes_read) => {
+                    // Accumulate response chunks
+                    let chunk = String::from_utf8_lossy(&buffer[..bytes_read]);
+                    final_response.push_str(&chunk);
+
+                    // Check for required response markers
+                    cmgs_received = cmgs_received || final_response.contains("+CMGS:");
+                    ok_received = ok_received || final_response.contains("OK\r\n");
+
+                    // Early exit when both markers found
+                    if ok_received && cmgs_received {
+                        break;
+                    }
+                }
+                // Handle non-fatal timeouts
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => continue,
+                Err(e) => return Err(e),
+            }
+        }
+
+        // Final response validation
+        if ok_received && cmgs_received {
+
+            let sms = SMS{
+                index:0,
+                id: None,
+                sender: None,
+                receiver: Some(mobile.to_string()),
+                timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
+                message: message.to_string(),
+                device: self.name.clone(),
+                local_send: true,
+            };
+            tokio::spawn(async move {
+                let _ = sms.insert().await.is_err_and(|err| {
+                    error!("{}",err);
+                    true
+                });
+            });
+
+            Ok(final_response)
+        } else {
+            error!(
+                "Incomplete SMS response: {}",
+                self.transpose_log(&final_response)
+            );
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Incomplete SMS response: {}", final_response),
+            ))
+        }
     }
 
     /// Read SMS messages based on the specified type
@@ -140,6 +221,23 @@ impl Modem {
     /// Log escaping
     fn transpose_log(&self, input: &str) -> String {
         input.replace("\r\n", "\\r\\n").replace("\r", "\\r")
+    }
+
+    /// Internal send method (requires held lock)
+    fn send_locked(&self, command: &str, port: &mut Box<dyn SerialPort + Send>) -> io::Result<()> {
+        debug!("TX [{}]: {}", self.name, self.transpose_log(command));
+        port.write_all(command.as_bytes())?;
+        port.flush()?;
+        Ok(())
+    }
+
+    /// Internal read method (requires held lock)
+    fn read_to_string_locked(&self, port: &mut Box<dyn SerialPort + Send>) -> io::Result<String> {
+        let mut buffer = [0u8; 1024];
+        let bytes_read = port.read(&mut buffer)?;
+        let output = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
+        debug!("RX [{}]: {}", self.name, self.transpose_log(&output));
+        Ok(output)
     }
 }
 /// Parse the response from AT+CMGL command into a list of SMS structs
@@ -163,7 +261,7 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
                     .unwrap_or(0);
 
                 let _status = parts[1].trim_matches('"').to_string();
-                let sender = parts[2].trim_matches('"').to_string();
+                let sender = Some(parts[2].trim_matches('"').to_string());
 
                 let timestamp =
                     parts[4].trim_matches('"').to_string() + " " + parts[5].trim_matches('"');
@@ -179,6 +277,7 @@ fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
                         id: None,
                         index,
                         sender,
+                        receiver: None,
                         timestamp,
                         message,
                         device: device.to_string(),

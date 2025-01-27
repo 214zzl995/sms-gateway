@@ -56,3 +56,12 @@ h1 {
     background-color: #f9f9f9;
   }
 }
+
+:root {
+  --primary-color: #78a2e0;
+  --secondary-color: #ffc3c3;
+  --bg-color: #f8f9fa;
+  --border-color: #dee2e6;
+}
+
+

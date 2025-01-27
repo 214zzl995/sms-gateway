@@ -7,18 +7,30 @@ use axum::{
 use log::debug;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use log::error;
 
 use crate::{db::SMS, Devices};
 
 mod auth;
 
-pub async fn run_api(devices: Devices, server_host: &str, server_port: &u16) -> anyhow::Result<()> {
-    let app = Router::new()
-        .route("/logout", get(logout))
+pub async fn run_api(
+    devices: Devices,
+    server_host: &str,
+    server_port: &u16,
+    username: &str,
+    password: &str,
+) -> anyhow::Result<()> {
+    let api = Router::new()
+        .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
-        .route("/sms/send", post(send_sms).with_state(devices.clone()))
+        .route("/sms", post(send_sms).with_state(devices.clone()))
         .route("/device", get(get_all_modem).with_state(devices.clone()))
-        .layer(axum::middleware::from_fn(auth::basic_auth));
+        .layer(axum::middleware::from_fn_with_state(
+            (username.to_string(), password.to_string()),
+            auth::basic_auth,
+        ));
+
+    let app = Router::new().nest_service("/api", api);
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", server_host, server_port)).await?;
@@ -27,11 +39,6 @@ pub async fn run_api(devices: Devices, server_host: &str, server_port: &u16) -> 
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub struct Pagination {
-    page: u32,
-    per_page: u32,
-}
 
 #[derive(Serialize)]
 pub struct PaginatedSmsResponse {
@@ -41,23 +48,42 @@ pub struct PaginatedSmsResponse {
     per_page: u32,
 }
 
-pub async fn get_sms_paginated(Query(pagination): Query<Pagination>) -> Response {
-    let (sms_list, total) = match SMS::paginate(pagination.page, pagination.per_page).await {
+#[derive(Deserialize,Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct SmsQuery {
+    page: u32,        
+    per_page: u32,   
+    #[serde(default)]
+    device: Option<String>, // 新增可选设备参数
+}
+
+pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
+    let result = match &query.device {
+        Some(device) => {
+            SMS::paginate_by_device(device, query.page, query.per_page).await
+        }
+        None => SMS::paginate(query.page, query.per_page).await,
+    };
+
+    let (sms_list, total) = match result {
         Ok(res) => res,
         Err(e) => {
+            error!("{}",e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Send failed: {}", e),
-            ).into_response()
+                format!("Failed to get SMS: {}", e),
+            )
+                .into_response()
         }
     };
 
     Json(PaginatedSmsResponse {
         data: sms_list,
         total,
-        page: pagination.page,
-        per_page: pagination.per_page,
-    }).into_response()
+        page: query.page,
+        per_page: query.per_page,
+    })
+    .into_response()
 }
 
 pub async fn send_sms(
@@ -90,12 +116,8 @@ pub async fn get_all_modem(State(devices): State<Devices>) -> Json<Vec<ModemInfo
     Json(modem_list)
 }
 
-pub async fn logout() -> impl IntoResponse {
-    (
-        StatusCode::UNAUTHORIZED,
-        [("WWW-Authenticate", "Basic realm=logout")],
-        "Logged out successfully",
-    )
+pub async fn check() -> impl IntoResponse {
+    StatusCode::NO_CONTENT
 }
 
 #[derive(serde::Deserialize)]

@@ -1,13 +1,23 @@
 <script>
+  import { updateStorageValue } from "./js/storage";
   import DeviceList from "./lib/DeviceList.svelte";
+  import LogoutIcon from "./lib/LogoutIcon.svelte";
   import MessageList from "./lib/MessageList.svelte";
-  import ModemIcon from "./lib/ModemIcon.svelte";
-  import { devices, messages } from "./stores/devices";
+  import SendDialog from "./lib/SendDialog.svelte";
+  import { devices, initDeices } from "./stores/devices";
 
-  let selectedDevice = null;
+  let sendDialogShow = $state(false);
+
+  initDeices();
+
+  let selectedDevice = $state(null);
 
   const selectDevice = (device) => (selectedDevice = device);
-  const showAllMessages = () => (selectedDevice = null);
+
+  const logout = async () => {
+    await updateStorageValue("auth", null);
+    window.location.reload();
+  };
 </script>
 
 <div class="container">
@@ -18,9 +28,13 @@
       <span>SMS</span>
     </div>
 
-    <button on:click={() => alert("发送指令逻辑")}>Send SMS</button>
+    <button onclick={() => (sendDialogShow = true)}>Send SMS</button>
 
     <DeviceList {devices} {selectedDevice} {selectDevice} />
+
+    <div class="logout">
+      <button onclick={logout}> <LogoutIcon /> Logout</button>
+    </div>
   </div>
 
   <!-- 主内容区域 -->
@@ -34,9 +48,10 @@
       {/if}
     </div>
 
-    <MessageList {messages} />
+    <MessageList {selectedDevice} />
   </div>
 </div>
+<SendDialog bind:value={sendDialogShow} />
 
 <style global>
   .icon {
@@ -45,12 +60,6 @@
     background: #495057;
     border-radius: 6px;
   }
-  :global(:root) {
-    --primary-color: #0d6efd;
-    --bg-color: #f8f9fa;
-    --border-color: #dee2e6;
-  }
-
   .container {
     display: flex;
     height: 100vh;
@@ -74,6 +83,28 @@
     gap: 12px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--border-color);
+  }
+
+  .logout {
+    flex: 1;
+    display: flex;
+    align-items: end;
+  }
+
+  .logout > button {
+    width: 100%;
+    display: flex;
+    justify-content: start;
+    align-items: center;
+    gap: 10px;
+    background: #f8f9fa;
+    color: #212529;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+
+  .logout > button:hover {
+    /* transform: translateX(4px); */
+    background: #f0f7ff;
   }
 
   button {

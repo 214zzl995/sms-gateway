@@ -73,11 +73,13 @@ async fn main() {
         modems_arc,
         &config.settings.server_host,
         &config.settings.server_port,
+        &config.settings.username.unwrap(),
+        &config.settings.password.unwrap(),
     )
     .await
     {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => {}
+        Err(_) => {}
     };
 }
 

@@ -16,7 +16,8 @@ pub struct SMS {
     pub id: Option<i64>, // SQLite auto-increment ID
     #[sqlx(default)] // Client-side sequence number (not stored in DB)
     pub index: u32,
-    pub sender: String,
+    pub sender: Option<String>,
+    pub receiver: Option<String>,
     pub timestamp: NaiveDateTime,
     pub message: String,
     pub device: String,
@@ -29,7 +30,7 @@ impl SMS {
         let pool = get_pool()?;
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, sender, timestamp, message, device, 
+            SELECT id, sender, receiver, timestamp, message, device, 
                    local_send 
             FROM sms 
             ORDER BY timestamp DESC
@@ -52,8 +53,21 @@ impl SMS {
         Ok(count)
     }
 
+    pub async fn device_count(device: &str) -> Result<i64> {
+        let pool = get_pool()?;
+        let count = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM sms WHERE device = ?
+            "#,
+        )
+        .bind(device)
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
+    }
+
     /// Retrieves paginated SMS records
-    pub async fn paginate(page: u32, per_page: u32)  -> Result<(Vec<Self>, i64)> {
+    pub async fn paginate(page: u32, per_page: u32) -> Result<(Vec<Self>, i64)> {
         if page == 0 {
             return Err(anyhow::anyhow!("Page number must be greater than 0"));
         }
@@ -62,7 +76,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, sender, timestamp, message, device, 
+            SELECT id, sender, receiver, timestamp, message, device, 
                    local_send 
             FROM sms 
             ORDER BY timestamp DESC
@@ -79,17 +93,50 @@ impl SMS {
         Ok((sms_list, total))
     }
 
+    pub async fn paginate_by_device(
+        device: &str,
+        page: u32,
+        per_page: u32,
+    ) -> Result<(Vec<Self>, i64)> {
+        if page == 0 {
+            return Err(anyhow::anyhow!("Page number must be greater than 0"));
+        }
+        let offset = (page - 1) * per_page;
+        let pool = get_pool()?;
+
+        let sms_list = sqlx::query_as(
+            r#"
+            SELECT id, sender, receiver, timestamp, message, device, 
+                   local_send 
+            FROM sms 
+            WHERE device = ?
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+            "#,
+        )
+        .bind(device)
+        .bind(per_page as i32)
+        .bind(offset as i32)
+        .fetch_all(pool)
+        .await?;
+
+        let total = SMS::device_count(device).await?;
+
+        Ok((sms_list, total))
+    }
+
     /// Inserts a single SMS record into the database
     pub async fn insert(&self) -> Result<()> {
         let pool = get_pool()?;
 
         sqlx::query(
             r#"
-            INSERT INTO sms (sender, timestamp, message, device, local_send)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sms (sender, receiver, timestamp, message, device, local_send)
+            VALUES (?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&self.sender)
+        .bind(&self.receiver)
         .bind(&self.timestamp)
         .bind(&self.message)
         .bind(&self.device)
@@ -107,11 +154,12 @@ impl SMS {
         // Process records in batches of MAX_BATCH_SIZE
         for chunk in records.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new(
-                "INSERT INTO sms (sender, timestamp, message, device, local_send) ",
+                "INSERT INTO sms (sender, receiver, timestamp, message, device, local_send) ",
             );
 
             query_builder.push_values(chunk, |mut b, sms| {
                 b.push_bind(&sms.sender)
+                    .push_bind(&sms.receiver)
                     .push_bind(&sms.timestamp)
                     .push_bind(&sms.message)
                     .push_bind(&sms.device)
