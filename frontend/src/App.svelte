@@ -1,5 +1,6 @@
 <script>
   import { updateStorageValue } from "./js/storage";
+    import DeciceInfo from "./lib/DeciceInfo.svelte";
   import DeviceList from "./lib/DeviceList.svelte";
   import LogoutIcon from "./lib/LogoutIcon.svelte";
   import MessageList from "./lib/MessageList.svelte";
@@ -18,6 +19,8 @@
     await updateStorageValue("auth", null);
     window.location.reload();
   };
+
+  
 </script>
 
 <div class="container">
@@ -42,9 +45,7 @@
     <div class="main-header">
       {selectedDevice ? `${selectedDevice.name}` : "All"}
       {#if selectedDevice}
-        <div class="modem-info">
-          <div>信号强度:</div>
-        </div>
+          <DeciceInfo {selectedDevice} />
       {/if}
     </div>
 

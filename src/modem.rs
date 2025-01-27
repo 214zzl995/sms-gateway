@@ -1,5 +1,6 @@
 use chrono::{Local, NaiveDateTime, Timelike};
 use log::{debug, error, info};
+use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
 use std::time::Duration;
@@ -173,9 +174,8 @@ impl Modem {
 
         // Final response validation
         if ok_received && cmgs_received {
-
-            let sms = SMS{
-                index:0,
+            let sms = SMS {
+                index: 0,
                 id: None,
                 sender: None,
                 receiver: Some(mobile.to_string()),
@@ -186,7 +186,7 @@ impl Modem {
             };
             tokio::spawn(async move {
                 let _ = sms.insert().await.is_err_and(|err| {
-                    error!("{}",err);
+                    error!("{}", err);
                     true
                 });
             });
@@ -238,6 +238,54 @@ impl Modem {
         let output = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
         debug!("RX [{}]: {}", self.name, self.transpose_log(&output));
         Ok(output)
+    }
+
+    /// Get signal strength (RSSI) and Bit Error Rate (BER)
+    pub async fn get_signal_quality(&self) -> io::Result<Option<SignalQuality>> {
+        let response = self
+            .send_command_with_ok("AT+CSQ\r\n")
+            .await?
+            .trim()
+            .to_string()
+            .replace("OK", "");
+        Ok(SignalQuality::from_response(&response))
+    }
+
+    /// Check network registration status
+    pub async fn check_network_registration(&self) -> io::Result<Option<NetworkRegistrationStatus>> {
+        let response = self
+            .send_command_with_ok("AT+CREG?\r\n")
+            .await?
+            .trim()
+            .to_string()
+            .replace("OK", "");
+        Ok(NetworkRegistrationStatus::from_response(&response))
+    }
+
+    /// Check current operator
+    pub async fn check_operator(&self) -> io::Result<Option<OperatorInfo>> {
+        let response = self
+            .send_command_with_ok("AT+COPS?\r\n")
+            .await?
+            .trim()
+            .to_string()
+            .replace("OK", "")
+            .to_string();
+        debug!("Current Operator: {}", response);
+        Ok(OperatorInfo::from_response(&response))
+    }
+
+    /// Get modem model
+    pub async fn get_modem_model(&self) -> io::Result<Option<ModemInfo>> {
+        let response = self
+            .send_command_with_ok("AT+CGMM\r\n")
+            .await?
+            .trim()
+            .to_string()
+            .replace("OK", "")
+            .to_string();
+        debug!("Modem Model: {}", response);
+        Ok(ModemInfo::from_response(&response))
     }
 }
 /// Parse the response from AT+CMGL command into a list of SMS structs
@@ -311,4 +359,97 @@ fn decode_message(message: &str) -> String {
         }
     }
     decoded
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignalQuality {
+    rssi: i32,  // Signal Strength (RSSI)
+    ber: i32,   // Bit Error Rate (BER)
+}
+
+impl SignalQuality {
+    // Parse AT+CSQ response (e.g., "+CSQ: 19,0")
+    pub fn from_response(response: &str) -> Option<Self> {
+        // Extract the part after "+CSQ:"
+        if let Some(data) = response.split(":").nth(1) {
+            let parts: Vec<&str> = data.split(',').collect();
+            if parts.len() == 2 {
+                if let (Ok(rssi), Ok(ber)) = (
+                    parts[0].trim().parse::<i32>(),
+                    parts[1].trim().parse::<i32>(),
+                ) {
+                    return Some(SignalQuality { rssi, ber });
+                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkRegistrationStatus {
+    status: String, // Registration status ("0" = Not registered, "1" = Registered, etc.)
+    location_area_code: Option<String>,
+    cell_id: Option<String>,
+}
+
+impl NetworkRegistrationStatus {
+    // Parse AT+CREG? response (e.g., "+CREG: 0,1")
+    pub fn from_response(response: &str) -> Option<Self> {
+        if let Some(data) = response.split(":").nth(1) {
+            let parts: Vec<&str> = data.split(',').collect();
+            if parts.len() >= 2 {
+                let status = parts[0].trim().to_string();
+                let location_area_code = parts.get(1).map(|s| s.trim().to_string());
+                let cell_id = parts.get(2).map(|s| s.trim().to_string());
+                return Some(NetworkRegistrationStatus {
+                    status,
+                    location_area_code,
+                    cell_id,
+                });
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OperatorInfo {
+    operator_name: String,
+    operator_id: String,
+    registration_status: String,
+}
+
+impl OperatorInfo {
+    // Parse AT+COPS? response (e.g., "+COPS: 0,0,\"Vodafone\",2")
+    pub fn from_response(response: &str) -> Option<Self> {
+        if let Some(data) = response.split(":").nth(1) {
+            let parts: Vec<&str> = data.split(',').collect();
+            if parts.len() >= 3 {
+                let registration_status = parts[0].trim().to_string();
+                let operator_name = parts[2].trim_matches('"').to_string();
+                let operator_id = parts[1].trim().to_string();
+                return Some(OperatorInfo {
+                    operator_name,
+                    operator_id,
+                    registration_status,
+                });
+            }
+        }
+        None
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModemInfo {
+    model: String,
+}
+
+impl ModemInfo {
+    // Parse AT+CGMM response (e.g., "Model ABC123")
+    pub fn from_response(response: &str) -> Option<Self> {
+        Some(ModemInfo {
+            model: response.trim().to_string(),
+        })
+    }
 }

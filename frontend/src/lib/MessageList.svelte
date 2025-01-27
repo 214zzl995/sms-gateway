@@ -11,6 +11,7 @@
   let totalPages = $state(0);
   const per_page = 10;
 
+
   $effect(() => {
     if (selectedDevice || page) {
       loadMessages();
