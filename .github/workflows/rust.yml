@@ -1,82 +1,124 @@
-name: Rust
+name: Build and Release
 
 on:
   push:
     tags:
-      - "*"
-  pull_request:
-    branches: [ "main" ]
-
-env:
-  CARGO_TERM_COLOR: always
+      - "v*.*.*" # 当推送符合模式v*.*.*的标签时触发工作流
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }} # 定义作业运行的操作系统
+    strategy:
+      matrix:
+        os: [ubuntu-latest] # 仅使用Ubuntu
+        arch: [x86_64, aarch64, x86_64-unknown-linux-musl] # 添加x86_64-unknown-linux-musl
 
     steps:
-    - uses: actions/checkout@v4
-    
-    # 安装 Node.js 和 pnpm
-    - name: Set up Node.js and pnpm
-      run: |
-        # 安装 Node.js
-        curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-        
-        # 安装 pnpm
-        npm install -g pnpm
+      - name: Checkout code
+        uses: actions/checkout@v2 # 检出仓库代码
 
-    # 安装必需的构建工具
-    - name: Install build tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          make \
-          musl-tools \
-          libssl-dev \
-          git
-    
-    # 编译 frontend
-    - name: Build frontend
-      run: |
-        cd frontend
-        pnpm install
-        pnpm run build
-    
-    # 编译 Rust 项目
-    - name: Build Rust Project (default)
-      run: cargo build --verbose
-    
-    # 编译 Release 版本
-    - name: Build Release Version
-      run: cargo build -r --verbose
-    
-    # 编译目标为 musl 版本
-    - name: Build musl target
-      run: cargo build -r --target=x86_64-unknown-linux-musl --verbose
-    
-    # 运行测试
-    - name: Run tests
-      run: cargo test --verbose
+      # 设置 Node.js 环境
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22' # 设置Node.js版本为16
 
-    # 重命名 musl 构建产物并上传
-    - name: Rename musl build artifact
-      run: |
-        # 重命名 musl 构建产物
-        mv target/x86_64-unknown-linux-musl/release/sms-gateway target/x86_64-unknown-linux-musl/release/sms-gateway-musl
-        echo "Renamed musl build to sms-gateway-musl"
-    
-    # 上传构建产物作为 Artifact
-    - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4.6.0
-      with:
-        name: rust-build-artifacts  # 你上传的 artifact 名称
-        path: |
-          target/release/sms-gateway  # 默认的构建产物
-          target/x86_64-unknown-linux-musl/release/sms-gateway-musl  # 重命名后的 musl 构建产物
-        retention-days: 30  # artifact 的保留天数，默认为 90 天
-        compression-level: 6  # 压缩级别，0 为不压缩，9 为最佳压缩，6 是默认值
-        if-no-files-found: error  # 如果没有找到文件则失败
-        overwrite: true  # 如果已有同名 artifact，是否覆盖
-        include-hidden-files: false  # 不包括隐藏文件
+      # 安装前端依赖
+      - name: Install frontend dependencies
+        run: |
+          cd frontend # 进入前端目录（假设前端代码在 frontend 文件夹内）
+          npm install # 安装前端依赖
+
+      # 编译前端页面
+      - name: Build frontend
+        run: |
+          cd frontend # 进入前端目录
+          npm run build # 编译前端页面
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1 # 设置Rust工具链
+        with:
+          toolchain: stable # 使用稳定版Rust工具链
+          profile: minimal # 使用最小化配置文件
+          override: true # 覆盖任何现有的Rust工具链设置
+
+      - name: Build project
+        run: cargo build --release --target ${{ matrix.arch }} # 构建项目的发布版本，指定目标架构
+
+      # 上传Linux x86_64平台的构建产物
+      - name: Upload artifact (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway
+          path: target/release/sms-gateway
+
+      # 上传Linux aarch64平台的构建产物
+      - name: Upload artifact (Linux aarch64)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'aarch64'
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway-aarch64
+          path: target/release/sms-gateway
+
+      # 上传Linux x86_64-unknown-linux-musl平台的构建产物
+      - name: Upload artifact (Linux musl)
+        if: matrix.os == 'ubuntu-latest' && matrix.arch == 'x86_64-unknown-linux-musl'
+        uses: actions/upload-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway-musl
+          path: target/x86_64-unknown-linux-musl/release/sms-gateway
+
+  release:
+    runs-on: ubuntu-latest # 定义作业运行在Ubuntu系统上
+    needs: build # 依赖于build作业
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2 # 检出仓库代码
+
+      # 下载Linux x86_64平台的构建产物
+      - name: Download artifact (Linux-x86_64)
+        uses: actions/download-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway
+          path: artifacts/ubuntu
+
+      # 下载Linux aarch64平台的构建产物
+      - name: Download artifact (Linux-aarch64)
+        uses: actions/download-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway-aarch64
+          path: artifacts/ubuntu
+
+      # 下载Linux x86_64-unknown-linux-musl平台的构建产物
+      - name: Download artifact (Linux-musl)
+        uses: actions/download-artifact@v2
+        with:
+          name: ubuntu-latest-sms-gateway-musl
+          path: artifacts/ubuntu
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1 # 创建GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }} # 使用GitHub令牌进行身份验证
+        with:
+          tag_name: ${{ github.ref }} # 使用推送的标签名
+          release_name: Release ${{ github.ref }} # 使用推送的标签名作为发布名称
+          body: |
+            Changes in this Release
+            - First Change
+            - Second Change # 发布说明
+          draft: false # 是否为草稿
+          prerelease: false # 是否为预发布
+
+      # 上传Linux x86_64平台的构建产物到发布页面
+      - name: Upload Linux x86_64 artifact
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }} # 使用GitHub令牌进行身份验证
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # 使用创建发布步骤生成的上传URL
+          asset_path: artifacts/ubuntu/sms-gateway # 上传的文件路径
+          asset_name: sms-gateway-linux-x86
