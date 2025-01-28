@@ -6,13 +6,20 @@ use axum::{
 };
 use log::debug;
 use log::error;
-use reqwest::StatusCode;
+use mime_guess::from_path;
+use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{db::SMS, Devices};
 
 mod auth;
+
+use rust_embed::RustEmbed;
+
+#[derive(RustEmbed)]
+#[folder = "frontend/dist"]
+struct Asset;
 
 pub async fn run_api(
     devices: Devices,
@@ -35,7 +42,9 @@ pub async fn run_api(
             auth::basic_auth,
         ));
 
-    let app = Router::new().nest_service("/api", api);
+    let app = Router::new()
+        .nest_service("/api", api)
+        .fallback(static_handler);
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", server_host, server_port)).await?;
@@ -58,7 +67,7 @@ pub struct SmsQuery {
     page: u32,
     per_page: u32,
     #[serde(default)]
-    device: Option<String>, // 新增可选设备参数
+    device: Option<String>,
 }
 
 pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
@@ -130,14 +139,13 @@ pub async fn get_modem_detail(
                     Err(e) => (None, Some(e.to_string())),
                 }
             }
-    
-            // 处理每个异步结果
+
             let (signal_data, signal_error) = to_data_error(modem.get_signal_quality().await);
-            let (network_data, network_error) = to_data_error(modem.check_network_registration().await);
+            let (network_data, network_error) =
+                to_data_error(modem.check_network_registration().await);
             let (operator_data, operator_error) = to_data_error(modem.check_operator().await);
             let (model_data, model_error) = to_data_error(modem.get_modem_model().await);
-    
-            // 构建JSON响应
+
             let response = json!({
                 "signal_quality": {
                     "data": signal_data,
@@ -156,19 +164,39 @@ pub async fn get_modem_detail(
                     "error": model_error
                 }
             });
-    
-            // 返回200 OK及JSON数据
+
             (StatusCode::OK, Json(response)).into_response()
         }
-        None => {
-            // 设备未找到，返回404
-            (StatusCode::NOT_FOUND, "Modem not found").into_response()
-        }
+        None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
     }
 }
 
 pub async fn check() -> impl IntoResponse {
     StatusCode::NO_CONTENT
+}
+
+async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
+    let path = uri.path().trim_start_matches('/');
+
+    match Asset::get(path) {
+        Some(content) => {
+            let mime = from_path(path).first_or_octet_stream();
+            Response::builder()
+                .header(header::CONTENT_TYPE, mime.as_ref())
+                .body(content.data.into())
+                .unwrap()
+        }
+        None => {
+            if let Some(index) = Asset::get("index.html") {
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "text/html")
+                    .body(index.data.into())
+                    .unwrap()
+            } else {
+                (StatusCode::NOT_FOUND, "File not found").into_response()
+            }
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]

@@ -1,6 +1,7 @@
 <script>
+    import { onMount } from "svelte";
   import { updateStorageValue } from "./js/storage";
-    import DeciceInfo from "./lib/DeciceInfo.svelte";
+  import DeciceInfo from "./lib/DeciceInfo.svelte";
   import DeviceList from "./lib/DeviceList.svelte";
   import LogoutIcon from "./lib/LogoutIcon.svelte";
   import MessageList from "./lib/MessageList.svelte";
@@ -13,14 +14,34 @@
 
   let selectedDevice = $state(null);
 
-  const selectDevice = (device) => (selectedDevice = device);
+  const selectDevice = (/** @type {{ name: string | number | boolean; }} */ device) => {
+    selectedDevice = device;
+    if (device) {
+      history.replaceState(null, null, `#${encodeURIComponent(device.name)}`);
+    } else {
+      history.replaceState(null, null, " ");
+    }
+  };
 
   const logout = async () => {
     await updateStorageValue("auth", null);
     window.location.reload();
   };
 
-  
+  onMount(() => {
+    const hashValue = window.location.hash.substring(1);
+    console.log(hashValue);
+    if (hashValue) {
+      const decodedHash = decodeURIComponent(hashValue);
+      const unsubscribe = devices.subscribe($devices => {
+        const target = $devices.find(d => d.name === decodedHash);
+        if (target) {
+          selectedDevice = target;
+        }
+      });
+      return unsubscribe;
+    }
+  });
 </script>
 
 <div class="container">
@@ -45,7 +66,7 @@
     <div class="main-header">
       {selectedDevice ? `${selectedDevice.name}` : "All"}
       {#if selectedDevice}
-          <DeciceInfo {selectedDevice} />
+        <DeciceInfo {selectedDevice} />
       {/if}
     </div>
 
