@@ -3,7 +3,6 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use db::{db_init, SMS};
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
-    WriteMode,
 };
 use log::{error, LevelFilter};
 use modem::SmsType;
@@ -153,7 +152,6 @@ fn log_init(log_path: &PathBuf, log_level: &LevelFilter) -> anyhow::Result<()> {
     let file_spec = FileSpec::default().directory(log_path);
 
     let _ = Logger::try_with_str(format!("{}", log_level.to_string()))?
-        .write_mode(WriteMode::BufferAndFlush)
         .log_to_file(file_spec)
         .duplicate_to_stderr(Duplicate::All)
         .format_for_stderr(colored_detailed_format)

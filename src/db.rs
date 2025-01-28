@@ -1,9 +1,10 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
+use sqlx::migrate;
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
-use sqlx::{migrate::Migrator, FromRow, QueryBuilder};
+use sqlx::{FromRow, QueryBuilder};
 use std::sync::OnceLock;
 
 const MAX_BATCH_SIZE: usize = 500;
@@ -186,11 +187,7 @@ pub async fn db_init() -> Result<()> {
         .connect(db_path)
         .await?;
 
-    // Run migrations
-    Migrator::new(std::path::Path::new("./migrations"))
-        .await?
-        .run(&pool)
-        .await?;
+    migrate!("./migrations").run(&pool).await?;
 
     POOL.set(pool)
         .map_err(|_| anyhow::anyhow!("Failed to initialize database connection pool"))?;
