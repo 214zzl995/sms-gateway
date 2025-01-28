@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - "v*.*.*" # 当推送符合模式v*.*.*的标签时触发工作流
+      - "*" # 当推送符合模式v*.*.*的标签时触发工作流
 
 jobs:
   build:
