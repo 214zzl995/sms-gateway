@@ -12,7 +12,6 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
@@ -26,7 +25,8 @@ jobs:
           make \
           musl-tools \
           libssl-dev \
-          pnpm
+          pnpm \
+          git
     
     # 编译 frontend
     - name: Build frontend
@@ -35,7 +35,7 @@ jobs:
         pnpm install
         pnpm run build
     
-    # 编译普通版本
+    # 编译 Rust 项目
     - name: Build Rust Project (default)
       run: cargo build --verbose
     
@@ -50,3 +50,24 @@ jobs:
     # 运行测试
     - name: Run tests
       run: cargo test --verbose
+
+    # 重命名 musl 构建产物并上传
+    - name: Rename musl build artifact
+      run: |
+        # 重命名 musl 构建产物
+        mv target/x86_64-unknown-linux-musl/release/sms-gateway target/x86_64-unknown-linux-musl/release/sms-gateway-musl
+        echo "Renamed musl build to sms-gateway-musl"
+    
+    # 上传构建产物作为 Artifact
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4.6.0
+      with:
+        name: rust-build-artifacts  # 你上传的 artifact 名称
+        path: |
+          target/release/sms-gateway  # 默认的构建产物
+          target/x86_64-unknown-linux-musl/release/sms-gateway-musl  # 重命名后的 musl 构建产物
+        retention-days: 30  # artifact 的保留天数，默认为 90 天
+        compression-level: 6  # 压缩级别，0 为不压缩，9 为最佳压缩，6 是默认值
+        if-no-files-found: error  # 如果没有找到文件则失败
+        overwrite: true  # 如果已有同名 artifact，是否覆盖
+        include-hidden-files: false  # 不包括隐藏文件
