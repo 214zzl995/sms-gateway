@@ -10,12 +10,6 @@ pub struct Settings {
     pub server_port: u16,
     pub username:Option<String>,
     pub password:Option<String>,
-    retries: u32,
-    buffer_size: u32,
-    buffer_low: u32,
-    msg_timeout: u32,
-    msg_count_out: u32,
-    msg_timeout_long: u32,
     pub read_sms_frequency: u64,
 }
 
@@ -61,24 +55,6 @@ fn test_config(app_config: &AppConfig) -> Result<()> {
     }
     if app_config.settings.server_port == 0 {
         anyhow::bail!("Fatal: server_port is not set");
-    }
-    if app_config.settings.retries == 0 {
-        anyhow::bail!("Fatal: retries is not set");
-    }
-    if app_config.settings.buffer_size == 0 {
-        anyhow::bail!("Fatal: buffer_size is not set");
-    }
-    if app_config.settings.buffer_low == 0 {
-        anyhow::bail!("Fatal: buffer_low is not set");
-    }
-    if app_config.settings.msg_timeout == 0 {
-        anyhow::bail!("Fatal: msg_timeout is not set");
-    }
-    if app_config.settings.msg_count_out == 0 {
-        anyhow::bail!("Fatal: msg_count_out is not set");
-    }
-    if app_config.settings.msg_timeout_long == 0 {
-        anyhow::bail!("Fatal: msg_timeout_long is not set");
     }
 
     // Validate DEVICES section

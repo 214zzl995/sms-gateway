@@ -3,12 +3,6 @@ server_host = "0.0.0.0"
 server_port = 8951
 username = "admin"
 password = "password778"
-retries = 3
-buffer_size = 10
-buffer_low = 4
-msg_timeout = 5
-msg_count_out = 10
-msg_timeout_long = 20
 read_sms_frequency = 60
 
 [devices.default]
