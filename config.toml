@@ -6,6 +6,6 @@ password = "password778"
 read_sms_frequency = 60
 
 [devices.default]
-com_port = "/dev/ttyUSB2"
+com_port = "/dev/ttyUSB1"
 baud_rate = 115200
 

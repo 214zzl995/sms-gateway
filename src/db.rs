@@ -12,7 +12,7 @@ const MAX_BATCH_SIZE: usize = 500;
 static POOL: OnceLock<SqlitePool> = OnceLock::new();
 
 /// Represents a single SMS message
-#[derive(Debug, FromRow, Deserialize, Serialize)]
+#[derive(Debug, FromRow, Deserialize, Serialize,Default)]
 pub struct SMS {
     pub id: Option<i64>, // SQLite auto-increment ID
     #[sqlx(default)] // Client-side sequence number (not stored in DB)
@@ -27,7 +27,7 @@ pub struct SMS {
 
 impl SMS {
     /// Retrieves all SMS records
-    pub async fn all() -> Result<Vec<Self>> {
+    pub async fn _all() -> Result<Vec<Self>> {
         let pool = get_pool()?;
         let sms_list = sqlx::query_as(
             r#"

@@ -1,16 +1,17 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
-use db::{db_init, SMS};
+use db::db_init;
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
 };
-use log::{error, LevelFilter};
+use log::LevelFilter;
 use modem::SmsType;
 use structopt::StructOpt;
 
 mod api;
 mod config;
 mod db;
+mod decode;
 mod modem;
 
 pub type Devices = Arc<HashMap<String, modem::Modem>>;
@@ -87,21 +88,10 @@ async fn read_sms_worker(devices: Devices, read_sms_frequency: u64) {
     loop {
         for key in &modem_keys {
             let modem = devices.get(key).unwrap();
-            match modem.read_sms(SmsType::RecUnread).await {
-                Ok(smss) => {
-                    for sms in &smss {
-                        log::info!("SMS: {:?}", sms);
-                    }
-
-                    if let Err(err) = SMS::bulk_insert(&smss).await {
-                        error!("{}", err);
-                    }
-                }
-                Err(err) => {
-                    log::error!("Read SMS error: {}", err);
-                    continue;
-                }
-            };
+            if let Err(err) = modem.read_sms_async_insert(SmsType::RecUnread).await {
+                log::error!("Read SMS error: {}", err);
+                continue;
+            }
         }
 
         tokio::time::sleep(tokio::time::Duration::from_secs(read_sms_frequency)).await;

@@ -1,4 +1,4 @@
-use chrono::{Local, NaiveDateTime, Timelike};
+use chrono::{Local, Timelike};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
@@ -7,6 +7,15 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::db::SMS;
+use crate::decode::parse_pdu_sms;
+
+const TERMINATORS: &[&[u8]] = &[
+    b"\r\nOK\r\n",
+    b"\r\nERROR\r\n",
+    b"\r\n> ",
+    b"\r\n+CME ERROR",
+    b"\r\n+CMS ERROR",
+];
 
 /// Enum representing the type of SMS messages
 #[derive(Debug, Clone, Copy)]
@@ -20,13 +29,23 @@ pub enum SmsType {
 
 impl SmsType {
     /// Convert the enum variant to its corresponding AT command string
-    fn to_at_command(&self) -> &'static str {
+    fn _to_at_command_text(&self) -> &'static str {
         match self {
             SmsType::RecUnread => "REC UNREAD",
             SmsType::RecRead => "REC READ",
             SmsType::StoUnsent => "STO UNSENT",
             SmsType::StoSent => "STO SENT",
             SmsType::All => "ALL",
+        }
+    }
+
+    fn to_at_command_pdu(&self) -> u8 {
+        match self {
+            SmsType::RecUnread => 0,
+            SmsType::RecRead => 1,
+            SmsType::StoUnsent => 2,
+            SmsType::StoSent => 3,
+            SmsType::All => 4,
         }
     }
 }
@@ -61,7 +80,7 @@ impl Modem {
     pub async fn init_modem(&mut self) -> io::Result<()> {
         self.send_command_with_ok("ATE0\r\n").await?; // echo off
         self.send_command_with_ok("AT+CMEE=1\r\n").await?; // useful error messages
-        self.send_command_with_ok("AT+CMGF=1\r\n").await?; // switch to TEXT mode
+        self.send_command_with_ok("AT+CMGF=0\r\n").await?; // switch to TEXT mode
 
         Ok(())
     }
@@ -204,17 +223,34 @@ impl Modem {
         }
     }
 
+    pub async fn read_sms_async_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
+        let sms_list = self.read_sms(sms_type).await?;
+        tokio::spawn(async move {
+            if let Err(err) = SMS::bulk_insert(&sms_list).await {
+                log::error!("Insert SMS error: {}", err);
+            };
+        });
+        Ok(())
+    }
+
+    pub async fn read_sms_sync_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
+        let sms_list = self.read_sms(sms_type).await?;
+        SMS::bulk_insert(&sms_list).await?;
+        Ok(())
+    }
+
     /// Read SMS messages based on the specified type
     pub async fn read_sms(&self, sms_type: SmsType) -> io::Result<Vec<SMS>> {
         // Send the AT command to list SMS messages
-        let command = format!("AT+CMGL=\"{}\"\r\n", sms_type.to_at_command());
+        let command = format!("AT+CMGL=\"{}\"\r\n", sms_type.to_at_command_pdu());
 
         // Read the response
         let response = self.send_command_with_ok(&command).await?;
         debug!("ReadSMS: {}", response);
 
         // Parse the response into SMS structs
-        let sms_list = parse_sms_response(&response, &self.name);
+        let sms_list = parse_pdu_sms(&response, &self.name);
+
         Ok(sms_list)
     }
 
@@ -233,6 +269,67 @@ impl Modem {
 
     /// Internal read method (requires held lock)
     fn read_to_string_locked(&self, port: &mut Box<dyn SerialPort + Send>) -> io::Result<String> {
+        let mut buffer = Vec::new();
+        let mut temp_buf = [0u8; 1024];
+
+        loop {
+            match port.read(&mut temp_buf) {
+                Ok(bytes_read) => {
+                    if bytes_read == 0 {
+                        break; // Handle EOF
+                    }
+
+                    // Append new data to buffer
+                    buffer.extend_from_slice(&temp_buf[..bytes_read]);
+
+                    // Scan for termination patterns in real-time
+                    if let Some((matched_term, pos)) = TERMINATORS
+                        .iter()
+                        .filter_map(|t| {
+                            buffer
+                                .windows(t.len())
+                                .position(|w| w == *t)
+                                .map(|pos| (t, pos)) // Return both terminator and position
+                        })
+                        .max_by_key(|&(_, pos)| pos)
+                    // Find last occurring terminator
+                    {
+                        let end_pos = pos + matched_term.len();
+                        let response = String::from_utf8_lossy(&buffer[..end_pos]).to_string();
+                        buffer.drain(..end_pos); // Efficiently remove processed data
+                        debug!("Found terminator: {:?}", matched_term);
+                        return Ok(response);
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+                    // Check for partial data before timeout handling
+                    if !buffer.is_empty() {
+                        let response = String::from_utf8_lossy(&buffer).to_string();
+                        buffer.clear();
+                        debug!("Returning partial response after timeout");
+                        return Ok(response);
+                    }
+                    break;
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // Non-blocking I/O handling
+                    break;
+                }
+                Err(e) => {
+                    // Propagate other errors
+                    return Err(e);
+                }
+            }
+        }
+
+        // Process remaining data in buffer
+        let output = String::from_utf8_lossy(&buffer).to_string();
+        buffer.clear(); // Explicitly clear buffer
+        debug!("RX [{}]: {}", self.name, self.transpose_log(&output));
+        Ok(output)
+    }
+
+    fn _read_to_string_locked(&self, port: &mut Box<dyn SerialPort + Send>) -> io::Result<String> {
         let mut buffer = [0u8; 1024];
         let bytes_read = port.read(&mut buffer)?;
         let output = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
@@ -252,7 +349,9 @@ impl Modem {
     }
 
     /// Check network registration status
-    pub async fn check_network_registration(&self) -> io::Result<Option<NetworkRegistrationStatus>> {
+    pub async fn check_network_registration(
+        &self,
+    ) -> io::Result<Option<NetworkRegistrationStatus>> {
         let response = self
             .send_command_with_ok("AT+CREG?\r\n")
             .await?
@@ -288,83 +387,11 @@ impl Modem {
         Ok(ModemInfo::from_response(&response))
     }
 }
-/// Parse the response from AT+CMGL command into a list of SMS structs
-fn parse_sms_response(response: &str, device: &str) -> Vec<SMS> {
-    let mut sms_list = Vec::new();
-    let lines: Vec<&str> = response.lines().collect();
-
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        if line.starts_with("+CMGL:") {
-            // Parse the header line
-            let parts: Vec<&str> = line.split(',').collect();
-            if parts.len() >= 5 {
-                let index = parts[0]
-                    .split(':')
-                    .nth(1)
-                    .unwrap_or("0")
-                    .trim()
-                    .parse::<u32>()
-                    .unwrap_or(0);
-
-                let _status = parts[1].trim_matches('"').to_string();
-                let sender = Some(parts[2].trim_matches('"').to_string());
-
-                let timestamp =
-                    parts[4].trim_matches('"').to_string() + " " + parts[5].trim_matches('"');
-                let format = "%y/%m/%d %H:%M:%S";
-                let datetime_str = timestamp.split('+').next().unwrap_or(&timestamp);
-                let timestamp = NaiveDateTime::parse_from_str(datetime_str, format).unwrap();
-
-                // Parse the message content (next line)
-                if i + 1 < lines.len() {
-                    let message = decode_message(lines[i + 1].trim());
-
-                    sms_list.push(SMS {
-                        id: None,
-                        index,
-                        sender,
-                        receiver: None,
-                        timestamp,
-                        message,
-                        device: device.to_string(),
-                        local_send: false,
-                    });
-                    i += 1; // Skip the message line
-                }
-            }
-        }
-        i += 1;
-    }
-
-    sms_list
-}
-
-fn decode_message(message: &str) -> String {
-    let mut decoded = String::new();
-    let mut chars = message.chars().collect::<Vec<_>>();
-
-    // Process the encoded string in chunks of 4 characters
-    while chars.len() >= 4 {
-        // Take 4 characters as a UCS2 code point
-        let chunk: String = chars.drain(0..4).collect();
-        let code_point = u32::from_str_radix(&chunk, 16).unwrap_or(0);
-
-        // Convert the code point to a Unicode character
-        if let Some(c) = char::from_u32(code_point) {
-            decoded.push(c);
-        } else {
-            decoded.push('�'); // Replacement character for invalid code points
-        }
-    }
-    decoded
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SignalQuality {
-    rssi: i32,  // Signal Strength (RSSI)
-    ber: i32,   // Bit Error Rate (BER)
+    rssi: i32, // Signal Strength (RSSI)
+    ber: i32,  // Bit Error Rate (BER)
 }
 
 impl SignalQuality {

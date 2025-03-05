@@ -11,7 +11,7 @@ use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{db::SMS, Devices};
+use crate::{db::SMS, modem::SmsType, Devices};
 
 mod auth;
 
@@ -36,6 +36,10 @@ pub async fn run_api(
         .route(
             "/device/{name}",
             get(get_modem_detail).with_state(devices.clone()),
+        )
+        .route(
+            "/refresh/{name}",
+            get(refresh_sms).with_state(devices.clone()),
         )
         .layer(axum::middleware::from_fn_with_state(
             (username.to_string(), password.to_string()),
@@ -166,6 +170,21 @@ pub async fn get_modem_detail(
             });
 
             (StatusCode::OK, Json(response)).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
+    }
+}
+
+pub async fn refresh_sms(
+    Path(name): Path<String>,
+    State(devices): State<Devices>,
+) -> Response {
+    match devices.get(&name) {
+        Some(modem) => {
+            match modem.read_sms_sync_insert(SmsType::RecUnread).await{
+                Ok(_) => (StatusCode::OK).into_response(),
+                Err(err) => (StatusCode::BAD_GATEWAY,err.to_string()).into_response(),
+            }
         }
         None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
     }

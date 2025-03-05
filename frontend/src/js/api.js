@@ -48,6 +48,9 @@ class ApiClient {
         return FetchApi.post('/api/sms', payload);
     }
 
+    /**
+     * @param {any} modemId
+     */
     async getModemsInfo(modemId) {
         return FetchApi.get(`/api/device/${modemId}`)
     }
@@ -57,6 +60,13 @@ class ApiClient {
      */
     async getAllModems() {
         return FetchApi.get('/api/device');
+    }
+
+    /**
+     * @param {any} modemId
+     */
+    async refreshSms(modemId){
+        return FetchApi.get(`/api/refresh/${modemId}`)
     }
 }
 
