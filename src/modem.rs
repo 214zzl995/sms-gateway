@@ -63,7 +63,7 @@ impl Modem {
     pub fn new(com_port: &str, baud_rate: u32, name: &str) -> io::Result<Self> {
         let builder = serialport::new(com_port, baud_rate);
 
-        let port = builder.timeout(Duration::from_secs(10)).open()?;
+        let port = builder.timeout(Duration::from_secs(60)).open()?;
         info!("device:{},com:{} connected successfully", name, com_port);
 
         let modem = Modem {
@@ -81,6 +81,7 @@ impl Modem {
         self.send_command_with_ok("ATE0\r\n").await?; // echo off
         self.send_command_with_ok("AT+CMEE=1\r\n").await?; // useful error messages
         self.send_command_with_ok("AT+CMGF=0\r\n").await?; // switch to TEXT mode
+        self.send_command_with_ok("AT+CSCS=\"UCS2\"\r\n").await?; // Set the character set to UCS2.
 
         Ok(())
     }
@@ -129,7 +130,7 @@ impl Modem {
     }
 
     /// Send SMS message with enhanced response handling
-    pub async fn send_sms(&self, mobile: &str, message: &str) -> io::Result<String> {
+    pub async fn send_sms_text(&self, mobile: &str, message: &str) -> anyhow::Result<String> {
         info!("Sending SMS to {}: {}", mobile, message);
 
         // Phase 1: Initialize SMS sending process
@@ -150,14 +151,14 @@ impl Modem {
 
         // Validate prompt reception
         if !prompt_response.contains("> ") {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
+            return Err(anyhow::anyhow!(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
                 "SMS prompt not received",
-            ));
+            )));
         }
 
         // Phase 2: Send message content with EOM (CTRL-Z)
-        let full_message = format!("{}\x1A", message);
+        let full_message = format!("{}\x1A", string_to_ucs2(message)?);
         self.send_locked(&full_message, &mut port)?;
 
         // Phase 3: Handle multi-line response
@@ -187,7 +188,7 @@ impl Modem {
                 }
                 // Handle non-fatal timeouts
                 Err(e) if e.kind() == io::ErrorKind::TimedOut => continue,
-                Err(e) => return Err(e),
+                Err(e) => return Err(anyhow::anyhow!(e)),
             }
         }
 
@@ -216,10 +217,103 @@ impl Modem {
                 "Incomplete SMS response: {}",
                 self.transpose_log(&final_response)
             );
-            Err(io::Error::new(
+            Err(anyhow::anyhow!(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Incomplete SMS response: {}", final_response),
-            ))
+            )))
+        }
+    }
+
+    /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
+    pub async fn send_sms_pdu(&self, mobile: &str, message: &str) -> anyhow::Result<String> {
+        info!("Sending SMS via PDU to {}: {}", mobile, message);
+        // Step 0: PDU encoding
+        let (pdu_data, tpdu_length) = build_pdu(mobile, message)?;
+        // Step 1: Initialize SMS sending
+        let mut port = self.port.lock().await;
+        self.send_locked(&format!("AT+CMGS={}\r", tpdu_length), &mut port)?;
+        // Wait for PDU mode prompt "> "
+        let mut prompt_response = String::new();
+        let start_time = std::time::Instant::now();
+        while start_time.elapsed() < Duration::from_secs(5) {
+            let mut buffer = [0u8; 1];
+            if port.read(&mut buffer).is_ok() {
+                prompt_response.push(buffer[0] as char);
+                if prompt_response.ends_with("> ") {
+                    break;
+                }
+            }
+        }
+        if !prompt_response.contains("> ") {
+            return Err(anyhow::anyhow!(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "SMS prompt not received",
+            )));
+        }
+        // Step 2: Send PDU data (including CTRL-Z)
+        let full_message = format!("{}\x1A", pdu_data);
+        self.send_locked(&full_message, &mut port)?;
+
+        // Step 3: Handle multi-line response
+        let mut final_response = String::new();
+        let mut ok_received = false;
+        let mut cmgs_received = false;
+        let timeout = Duration::from_secs(10);
+        let start_time = std::time::Instant::now();
+
+        // Read response chunks until timeout
+        while start_time.elapsed() < timeout {
+            let mut buffer = [0u8; 128];
+            match port.read(&mut buffer) {
+                Ok(bytes_read) => {
+                    // Accumulate response chunks
+                    let chunk = String::from_utf8_lossy(&buffer[..bytes_read]);
+                    final_response.push_str(&chunk);
+
+                    // Check for required response markers
+                    cmgs_received = cmgs_received || final_response.contains("+CMGS:");
+                    ok_received = ok_received || final_response.contains("OK\r\n");
+
+                    // Early exit when both markers found
+                    if ok_received && cmgs_received {
+                        break;
+                    }
+                }
+                // Handle non-fatal timeouts
+                Err(e) if e.kind() == io::ErrorKind::TimedOut => continue,
+                Err(e) => return Err(anyhow::anyhow!(e)),
+            }
+        }
+
+        // Final response validation
+        if ok_received && cmgs_received {
+            let sms = SMS {
+                index: 0,
+                id: None,
+                sender: None,
+                receiver: Some(mobile.to_string()),
+                timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
+                message: message.to_string(),
+                device: self.name.clone(),
+                local_send: true,
+            };
+            tokio::spawn(async move {
+                let _ = sms.insert().await.is_err_and(|err| {
+                    error!("{}", err);
+                    true
+                });
+            });
+
+            Ok(final_response)
+        } else {
+            error!(
+                "Incomplete SMS response: {}",
+                self.transpose_log(&final_response)
+            );
+            Err(anyhow::anyhow!(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Incomplete SMS response: {}", final_response),
+            )))
         }
     }
 
@@ -479,4 +573,110 @@ impl ModemInfo {
             model: response.trim().to_string(),
         })
     }
+}
+
+/// Encode a text message to UCS2 hex string
+fn string_to_ucs2(message: &str) -> anyhow::Result<String> {
+    // For Chinese characters, we need to use UTF-16BE encoding
+    // Each Chinese character takes up 2 bytes in UTF-16
+    let encoded: Vec<u16> = message.encode_utf16().collect();
+
+    // Check message length (70 UCS2 characters maximum = 140 bytes)
+    if encoded.len() > 70 {
+        return Err(anyhow::anyhow!(
+            "UCS2 message too long (max 70 characters), current: {} characters",
+            encoded.len()
+        ));
+    }
+
+    // Convert to byte array with proper endianness (BE)
+    let mut bytes = Vec::with_capacity(encoded.len() * 2);
+    for code_unit in encoded {
+        bytes.extend_from_slice(&code_unit.to_be_bytes());
+    }
+
+    // Convert to hex string
+    Ok(hex::encode_upper(&bytes))
+}
+
+/// Parse a phone number and format for PDU
+fn parse_number(number: &str) -> anyhow::Result<(u8, String)> {
+    // Remove any '+' prefix and spaces
+    let cleaned_number = number.trim_start_matches('+').replace(" ", "");
+
+    // Type of address - 91h for international, 81h for national
+    let addr_type = if number.starts_with('+') { 0x91 } else { 0x81 };
+
+    // Swap digits for PDU format
+    let mut swapped = String::new();
+    let mut chars: Vec<char> = cleaned_number.chars().collect();
+
+    // Add trailing F if odd number of digits
+    if chars.len() % 2 != 0 {
+        chars.push('F');
+    }
+
+    // Swap digits in pairs
+    for i in 0..chars.len() / 2 {
+        let pos = i * 2;
+        swapped.push(chars[pos + 1]);
+        swapped.push(chars[pos]);
+    }
+
+    Ok((addr_type, swapped))
+}
+
+/// Encode the complete TPDU for a message
+fn encode_tpdu(mobile: &str, message: &str) -> anyhow::Result<(String, usize)> {
+    // 1. Message type: SMS-SUBMIT, no validity period
+    let first_octet = "11"; // SMS-SUBMIT, no reply path, no status report, no validity period
+
+    // 2. Message reference (0)
+    let mr = "00";
+
+    // 3. Destination address
+    let destination_phone = mobile.trim_start_matches('+').replace(" ", "");
+    let phone_len = format!("{:02X}", destination_phone.len());
+    let (addr_type, swapped_number) = parse_number(mobile)?;
+    let destination = format!("{}{:02X}{}", phone_len, addr_type, swapped_number);
+
+    // 4. Protocol ID (0)
+    let pid = "00";
+
+    // 5. Data Coding Scheme (UCS2 = 0x08)
+    let dcs = "08";
+
+    // 6. Encode the message in UCS2
+    let encoded_text = string_to_ucs2(message)?;
+
+    // 7. User Data Length (number of characters, not bytes)
+    let udl = format!("{:02X}", message.chars().count() * 2);
+
+    let vp = "00";
+
+    // 8. Assemble the TPDU
+    let tpdu = format!(
+        "{}{}{}{}{}{}{}{}",
+        first_octet, mr, destination, pid, dcs, vp, udl, encoded_text
+    );
+
+    // 9. Calculate TPDU length (needed for AT+CMGS command)
+    // Subtract the SMSC part for length calculation
+    let tpdu_length = tpdu.len() / 2;
+
+    Ok((tpdu, tpdu_length))
+}
+
+/// Build the complete PDU for sending
+fn build_pdu(mobile: &str, message: &str) -> anyhow::Result<(String, usize)> {
+    // 1. SMSC information (use default SMSC)
+    let smsc_info = "00"; // Length 0 = use default SMSC
+
+    // 2. Encode the TPDU
+    let (tpdu, tpdu_length) = encode_tpdu(mobile, message)?;
+
+    // 3. Combine to form complete PDU
+    let full_pdu = format!("{}{}", smsc_info, tpdu);
+
+    Ok((full_pdu, tpdu_length))
 }

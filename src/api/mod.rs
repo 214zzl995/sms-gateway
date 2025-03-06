@@ -107,7 +107,7 @@ pub async fn send_sms(
 ) -> impl IntoResponse {
     let modem = devices.get(&payload.modem_id);
     match modem {
-        Some(m) => match m.send_sms(&payload.number, &payload.message).await {
+        Some(m) => match m.send_sms_pdu(&payload.number, &payload.message).await {
             Ok(_) => (StatusCode::OK, "SMS sent").into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
