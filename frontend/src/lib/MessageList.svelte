@@ -11,7 +11,6 @@
   let totalPages = $state(0);
   const per_page = 10;
 
-
   $effect(() => {
     if (selectedDevice || page) {
       loadMessages();
@@ -50,169 +49,97 @@
   }
 </script>
 
-<div class="messages-container">
-  {#if isLoading}
-    <div class="status-message loading">
-      <div class="spinner"></div>
-      Loading messages...
-    </div>
-  {:else if error}
-    <div class="status-message error">
-      ⚠️ {error}
-      <button onclick={loadMessages}>Retry</button>
-    </div>
-  {:else if messages.length === 0}
-    <div class="status-message empty">📭 No messages found for this device</div>
-  {:else}
-    {#each messages as message (message.id)}
-      <div transition:fade class="message-card {message.sender? 'sender-card':'receiver-card'}">
-        <div class="sender-receiver">
-          {#if message.sender}
-            sender:{message.sender}
-          {/if}
-          {#if message.receiver}
-            receiver:{message.receiver}
-          {/if}
-        </div>
+<div class="flex flex-col h-full max-h-[calc(100vh-150px)] overflow-hidden">
+  <!-- 分页放在顶部标题栏下面 -->
+  <div
+    class="flex items-center justify-center gap-4 p-4 bg-gray-100 dark:bg-zinc-800 rounded-md mb-4"
+  >
+    <button
+      onclick={prevPage}
+      disabled={page === 1}
+      class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 hover:text-white disabled:hover:bg-transparent"
+    >
+      ← Previous
+    </button>
+    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+      Page {page} of {totalPages}
+    </span>
+    <button
+      onclick={nextPage}
+      disabled={page === totalPages}
+      class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 hover:text-white disabled:hover:bg-transparent"
+    >
+      Next →
+    </button>
+  </div>
 
-        <div class="content">{message.message}</div>
-        <div class="meta">
-          <span class="device"
-            >{#if !selectedDevice}
-              {message.device}
-            {/if}</span
-          >
-          <span class="timestamp">{message.timestamp}</span>
-        </div>
+  <!-- 消息内容滚动区 -->
+  <div class="flex-1 overflow-y-auto px-4">
+    {#if isLoading}
+      <div
+        class="flex items-center justify-center gap-2 p-8 text-gray-600 dark:text-gray-400"
+      >
+        <div
+          class="w-6 h-6 border-4 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+        ></div>
+        <span>Loading messages...</span>
       </div>
-    {/each}
+    {:else if error}
+      <div
+        class="p-8 rounded bg-red-100 text-red-700 flex flex-col items-center gap-4"
+      >
+        <span>⚠️ {error}</span>
+        <button
+          onclick={loadMessages}
+          class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+        >
+          Retry
+        </button>
+      </div>
+    {:else if messages.length === 0}
+      <div
+        class="p-8 rounded bg-gray-100 dark:bg-zinc-700 text-gray-500 dark:text-gray-400 text-center select-none"
+      >
+        📭 No messages found for this device
+      </div>
+    {:else}
+      {#each messages as message (message.id)}
+        <div
+          transition:fade
+          class="mb-6 p-4 rounded-lg shadow-md bg-white dark:bg-zinc-900 cursor-pointer
+            transition-transform duration-200
+            {message.sender
+            ? 'border-l-4 border-blue-500'
+            : 'border-l-4 border-green-500'}
+            hover:translate-x-1"
+        >
+          <div
+            class="text-xs text-gray-500 dark:text-gray-400 mb-2 select-none flex gap-2"
+          >
+            {#if message.sender}
+              <span>sender: {message.sender}</span>
+            {/if}
+            {#if message.receiver}
+              <span>receiver: {message.receiver}</span>
+            {/if}
+          </div>
 
-    <div class="pagination">
-      <button onclick={prevPage} disabled={page === 1}> ← Previous </button>
-      <span>Page {page} of {totalPages}</span>
-      <button onclick={nextPage} disabled={page === totalPages}>
-        Next →
-      </button>
-    </div>
-  {/if}
+          <div class="text-sm text-gray-800 dark:text-gray-200 mb-2">
+            {message.message}
+          </div>
+
+          <div
+            class="flex justify-between text-xs text-gray-500 dark:text-gray-400 italic select-none"
+          >
+            <span class="hidden md:inline-block">
+              {#if !selectedDevice}
+                {message.device}
+              {/if}
+            </span>
+            <span>{message.timestamp}</span>
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
 </div>
-
-<style>
-  .messages-container {
-    max-height: calc(100vh - 150px);
-    overflow-y: auto;
-    padding: 0 15px;
-  }
-
-  .message-card {
-    padding: 1rem;
-    margin: 1rem 0;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    
-    transition: transform 0.2s ease;
-  }
-
-  .sender-card{
-    border-left: 4px solid var(--primary-color);
-  }
-
-  .receiver-card{
-    border-left: 4px solid var(--secondary-color);
-  }
-
-  .message-card:hover {
-    transform: translateX(5px);
-  }
-
-  .content {
-    font-size: 0.95rem;
-    color: #333;
-    margin-bottom: 0.5rem;
-  }
-
-  .meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.8rem;
-    color: #666;
-  }
-
-  .timestamp {
-    font-style: italic;
-  }
-
-  .status-message {
-    padding: 2rem;
-    text-align: center;
-    border-radius: 8px;
-    margin: 1rem 0;
-
-    &.loading {
-      color: #666;
-    }
-
-    &.error {
-      color: #dc3545;
-      background: #ffe6e6;
-    }
-
-    &.empty {
-      color: #6c757d;
-      background: #f8f9fa;
-    }
-  }
-
-  .spinner {
-    display: inline-block;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: 3px solid rgba(0, 0, 0, 0.1);
-    border-top-color: #666;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-right: 0.5rem;
-  }
-
-  .pagination {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 1rem;
-    padding: 1rem;
-    background: #f8f9fa;
-    border-radius: 8px;
-    margin-top: 1rem;
-
-    button {
-      padding: 0.5rem 1rem;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background: white;
-      cursor: pointer;
-
-      &:hover:not(:disabled) {
-        background: var(--primary-color);
-        color: white;
-      }
-
-      &:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-    }
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  .sender-receiver {
-    font-size: 0.7rem;
-    margin-bottom: 0.7rem;
-    color: #666;
-  }
-</style>

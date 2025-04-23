@@ -11,31 +11,41 @@
         selectDevice(null);
     };
 
-    const toggleExpand = () =>{
+    const toggleExpand = () => {
         isExpanded = !isExpanded;
-    }
+    };
 </script>
 
-<div class="list">
+<div class="w-full">
     <div
-        class="list-header"
+        class="font-semibold cursor-pointer rounded-md flex justify-between items-center mb-2 h-8
+         focus:outline-none focus:ring-0 hover:bg-gray-100 dark:hover:bg-zinc-700 pl-2 select-none
+         text-gray-900 dark:text-gray-100"
         role="button"
         tabindex="0"
         onclick={selectAll}
         onkeydown={(e) => e.key === "Enter" && selectAll()}
     >
         All Device
-        <ArrowIcon {isExpanded} onclick={()=> toggleExpand()} />
+        <ArrowIcon {isExpanded} onclick={() => toggleExpand()} />
     </div>
 
     {#if isExpanded}
         <div transition:slide={{ duration: 300 }}>
             {#each $devices as device (device.name)}
-                <div class="list-item">
+                <div class="pb-2">
                     <div
-                        class=" {selectedDevice?.name === device.name
-                            ? 'selected'
-                            : ''}"
+                        class="px-2 py-2 rounded-md cursor-pointer transition-transform duration-200 flex items-center justify-between
+                    text-[0.9rem] focus:outline-none focus:ring-0
+                    dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-zinc-700 hover:text-gray-800 dark:hover:text-gray-100
+                    border-b border-gray-200 dark:border-zinc-700"
+                        class:bg-gray-200={selectedDevice?.name === device.name}
+                        class:dark:bg-zinc-900={selectedDevice?.name ===
+                            device.name}
+                        class:text-gray-500={selectedDevice?.name !==
+                            device.name}
+                        class:dark:text-gray-400={selectedDevice?.name !==
+                            device.name}
                         role="button"
                         tabindex="0"
                         onclick={() => selectDevice(device)}
@@ -44,16 +54,27 @@
                         in:fade={{ duration: 200 }}
                         out:fade
                     >
-                        <div class="device-info">
-                            <div class="device-name">
-                                <ModemIcon />
+                        <div
+                            class="flex flex-col items-start justify-center gap-[0.2rem]"
+                        >
+                            <div
+                                class="flex items-center gap-2 text-base select-none"
+                            >
                                 {device.name}
                             </div>
-                            <div class="device-connect">
-                                {device.com_port}
-                                {device.baud_rate}
-                            </div>
-                            
+
+                            {#if selectedDevice?.name === device.name}
+                                <div
+                                    class="mt-[0.2rem] text-gray-500 text-xs select-none flex gap-2 items-center dark:text-gray-400"
+                                    transition:slide={{ duration: 300 }}
+                                >
+                                    <ModemIcon />
+                                    <div>
+                                        <p>Port: {device.com_port}</p>
+                                        <p>Rate: {device.baud_rate}</p>
+                                    </div>
+                                </div>
+                            {/if}
                         </div>
                     </div>
                 </div>
@@ -61,64 +82,3 @@
         </div>
     {/if}
 </div>
-
-<style>
-    .list-header {
-        padding: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        background: #e9ecef;
-        border-radius: 6px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-
-    .list-item {
-        padding-bottom: 8px;
-    }
-
-    .list-item > div {
-        padding: 12px;
-        background: white;
-        border-radius: 6px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        cursor: pointer;
-        transition: transform 0.2s;
-        height: 3rem;
-        font-size: 0.85rem;
-    }
-
-    .list-item:hover {
-        /* transform: translateX(4px); */
-        background: #f0f7ff;
-    }
-
-    .list-item > div.selected {
-        background: #e7f1ff;
-        /* border-left: 3px solid var(--primary-color); */
-    }
-
-    .device-info {
-        display: flex;
-        align-items: start;
-        justify-content: center;
-        flex-direction: column;
-        height: 100%;
-        gap:0.2rem;
-    
-    }
-
-    .device-name {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-size: 1rem;
-    }
-
-    .device-connect{
-        margin-top: 0.2rem;
-        color: rgb(121, 121, 121);
-    }
-</style>

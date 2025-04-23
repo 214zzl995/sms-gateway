@@ -29,69 +29,40 @@
     }
 </script>
 
-<div class="device-info-card">
+<div class="bg-white dark:bg-zinc-900 rounded-md p-2 shadow-sm text-xs">
     {#if isModemInfoLoading}
-        <div class="status-message loading">
-            <div class="spinner"></div>
-            正在加载设备信息...
-        </div>
+      <div class="flex items-center gap-2 p-4 text-gray-600 dark:text-gray-400">
+        <div class="w-5 h-5 border-4 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+        正在加载设备信息...
+      </div>
     {:else if modemInfoError}
-        <div class="status-message error">
-            ⚠️ {modemInfoError}
-            <button onclick={loadModemInfo}>重试</button>
-        </div>
+      <div class="p-4 rounded bg-red-100 dark:bg-red-900 text-red-600 dark:text-red-400 flex flex-col items-center gap-3">
+        <span>⚠️ {modemInfoError}</span>
+        <button 
+          onclick={loadModemInfo} 
+          class="px-4 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+        >
+          重试
+        </button>
+      </div>
     {:else if modemInfo}
-        <div class="info-grid">
-            <div class="info-item">
-                <span class="label">信号强度:</span>
-                <span class="value">{modemInfo.signal_quality.data.rssi} dBm</span>
-            </div>
-            <div class="info-item">
-                <span class="label">网络状态:</span>
-                <span class="value">{modemInfo.network_registration.data.status}</span>
-            </div>
-            <div class="info-item">
-                <span class="label">运营商:</span>
-                <span class="value">{modemInfo.operator.data.operator_name}</span>
-            </div>
-            <div class="info-item">
-                <span class="label">设备型号:</span>
-                <span class="value">{modemInfo.modem_model.data.model}</span>
-            </div>
+      <div class="flex gap-4">
+        <div class="flex justify-between items-center p-2 bg-gray-100 dark:bg-zinc-800 rounded-md flex-1">
+          <span class="font-semibold text-gray-600 dark:text-gray-400">信号强度:</span>
+          <span class="font-semibold text-primary-600 dark:text-primary-400">{modemInfo.signal_quality.data.rssi} dBm</span>
         </div>
+        <div class="flex justify-between items-center p-2 bg-gray-100 dark:bg-zinc-800 rounded-md flex-1">
+          <span class="font-semibold text-gray-600 dark:text-gray-400">网络状态:</span>
+          <span class="font-semibold text-primary-600 dark:text-primary-400">{modemInfo.network_registration.data.status}</span>
+        </div>
+        <div class="flex justify-between items-center p-2 bg-gray-100 dark:bg-zinc-800 rounded-md flex-1">
+          <span class="font-semibold text-gray-600 dark:text-gray-400">运营商:</span>
+          <span class="font-semibold text-primary-600 dark:text-primary-400">{modemInfo.operator.data.operator_name}</span>
+        </div>
+        <div class="flex justify-between items-center p-2 bg-gray-100 dark:bg-zinc-800 rounded-md flex-1">
+          <span class="font-semibold text-gray-600 dark:text-gray-400">设备型号:</span>
+          <span class="font-semibold text-primary-600 dark:text-primary-400">{modemInfo.modem_model.data.model}</span>
+        </div>
+      </div>
     {/if}
-</div>
-
-<style>
-    .device-info-card {
-        background: white;
-        border-radius: 8px;
-        padding: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        font-size: 0.7rem;
-    }
-
-    .info-grid {
-        display: flex;
-        gap: 1rem;
-    }
-
-    .info-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem;
-        background: #f8f9fa;
-        border-radius: 4px;
-    }
-
-    .label {
-        font-weight: 500;
-        color: #666;
-    }
-
-    .value {
-        color: var(--primary-color);
-        font-weight: 600;
-    }
-</style>
+  </div>

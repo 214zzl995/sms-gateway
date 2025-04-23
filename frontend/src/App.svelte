@@ -1,5 +1,4 @@
 <script>
-  import "./app.css";
   import { onMount } from "svelte";
   import { updateStorageValue } from "./js/storage";
   import DeciceInfo from "./lib/DeciceInfo.svelte";
@@ -7,6 +6,7 @@
   import LogoutIcon from "./lib/LogoutIcon.svelte";
   import MessageList from "./lib/MessageList.svelte";
   import SendDialog from "./lib/SendDialog.svelte";
+  import Edit from "./lib/Edit.svelte";
   import { devices, initDeices } from "./stores/devices";
 
   let sendDialogShow = $state(false);
@@ -47,117 +47,45 @@
   });
 </script>
 
-<div class="container">
+<div class="flex h-screen w-screen font-sans dark:bg-zinc-900 dark:text-white">
   <!-- 左侧导航 -->
-  <div class="nav">
-    <div class="nav-top">
-      <div class="icon" aria-label="设备图标"></div>
-      <span>SMS</span>
-    </div>
-
-    <button onclick={() => (sendDialogShow = true)}>Send SMS</button>
+  <div
+    class="w-1/6 bg-zinc-100 dark:bg-zinc-800 p-2 border-r border-gray-100 dark:border-zinc-700 flex flex-col gap-4"
+  >
+    <button
+      class="ml-2 mr-2 border-2 border-dashed hover:border-solid rounded-md px-6 py-2 flex gap-5 dark:border-zinc-500 dark:hover:border-zinc-300"
+      onclick={() => (sendDialogShow = true)}
+    >
+      <Edit />
+      <div class="w-full text-sm flex justify-end items-center font-semibold">
+        Send SMS
+      </div>
+    </button>
 
     <DeviceList {devices} {selectedDevice} {selectDevice} />
 
-    <div class="logout">
-      <button onclick={logout}> <LogoutIcon /> Logout</button>
+    <div class="flex flex-1 items-end mb-2">
+      <button
+        class="w-full flex justify-start items-center gap-2 bg-zinc-100 hover:bg-zinc-200 p-4 rounded-md dark:bg-zinc-900 dark:hover:bg-zinc-600"
+        onclick={logout}
+      >
+        <LogoutIcon /> Logout
+      </button>
     </div>
   </div>
 
   <!-- 主内容区域 -->
-  <div class="main">
-    <div class="main-header">
+  <div class="flex-1 p-6 bg-white dark:bg-zinc-900">
+    <div
+      class="text-[20px] font-semibold mb-6 text-[#212529] dark:text-zinc-200 flex justify-between"
+    >
       {selectedDevice ? `${selectedDevice.name}` : "All"}
       {#if selectedDevice}
         <DeciceInfo {selectedDevice} />
       {/if}
     </div>
-
     <MessageList {selectedDevice} />
   </div>
 </div>
 
 <SendDialog bind:value={sendDialogShow} />
-
-<style>
-  .icon {
-    width: 32px;
-    height: 32px;
-    background: #495057;
-    border-radius: 6px;
-  }
-  .container {
-    display: flex;
-    height: 100vh;
-    width: 100vw;
-    font-family: Arial, sans-serif;
-  }
-
-  .nav {
-    width: 280px;
-    background: var(--bg-color);
-    padding: 20px;
-    border-right: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-  }
-
-  .nav-top {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .logout {
-    flex: 1;
-    display: flex;
-    align-items: end;
-  }
-
-  .logout > button {
-    width: 100%;
-    display: flex;
-    justify-content: start;
-    align-items: center;
-    gap: 10px;
-    background: #f8f9fa;
-    color: #212529;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  }
-
-  .logout > button:hover {
-    /* transform: translateX(4px); */
-    background: #f0f7ff;
-  }
-
-  button {
-    padding: 12px;
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-
-  button:hover {
-    background: #0b5ed7;
-  }
-
-  .main {
-    flex: 1;
-    padding: 24px;
-    background: white;
-  }
-
-  .main-header {
-    font-size: 20px;
-    font-weight: 600;
-    margin-bottom: 24px;
-    color: #212529;
-    display: flex;
-    justify-content: space-between;
-  }
-</style>
