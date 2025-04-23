@@ -63,30 +63,38 @@
     <!-- 遮罩层 -->
     <div
         transition:fade={{ duration: 150 }}
-        class="dialog-mask"
+        class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50"
         role="presentation"
-        onclick={(event) => {
-            self(event, close);
-        }}
+        onclick={(event) => self(event, close)}
     >
         <!-- 对话框主体 -->
         <div
             transition:fly={{ y: -50, duration: 300 }}
-            class="dialog-container"
+            class="bg-white dark:bg-zinc-900 p-8 rounded-lg w-[90%] max-w-[500px] shadow-lg relative"
         >
-            <h2>发送新消息</h2>
+            <h2
+                class="mb-6 text-2xl font-semibold text-gray-800 dark:text-gray-100"
+            >
+                发送新消息
+            </h2>
 
             <!-- 错误提示 -->
             {#if error}
-                <div class="error-message">{error}</div>
+                <div class="mb-4 p-3 rounded bg-red-100 text-red-700 text-sm">
+                    {error}
+                </div>
             {/if}
 
             <!-- 表单内容 -->
-            <div class="form-group">
+            <div class="mb-5">
                 <label
-                    >选择设备:
-
-                    <select bind:value={selectedDevice}>
+                    class="block mb-2 text-gray-700 dark:text-gray-300 font-medium"
+                >
+                    选择设备:
+                    <select
+                        class="block w-full mt-2 px-3 py-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
+                        bind:value={selectedDevice}
+                    >
                         <option value="" disabled>请选择设备</option>
                         {#each $devices as device (device.name)}
                             <option value={device.name}>{device.name}</option>
@@ -95,143 +103,51 @@
                 </label>
             </div>
 
-            <div class="form-group">
+            <div class="mb-5">
                 <label
-                    >接收号码: <input
+                    class="block mb-2 text-gray-700 dark:text-gray-300 font-medium"
+                >
+                    接收号码:
+                    <input
                         type="tel"
                         bind:value={recipient}
                         placeholder="请输入电话号码"
-                    /></label
-                >
+                        class="block w-full mt-2 px-3 py-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
+                    />
+                </label>
             </div>
 
-            <div class="form-group">
+            <div class="mb-4">
                 <label
-                    >消息内容: <textarea
+                    class="block mb-2 text-gray-700 dark:text-gray-300 font-medium"
+                >
+                    消息内容:
+                    <textarea
                         bind:value={message}
                         placeholder="请输入消息内容（最多500字）"
                         maxlength="500"
-                    ></textarea></label
-                >
+                        class="block w-full mt-2 px-3 py-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition resize-y min-h-[120px]"
+                    ></textarea>
+                </label>
             </div>
 
             <!-- 操作按钮 -->
-            <div class="action-buttons">
-                <button class="cancel" onclick={close} disabled={isLoading}
+            <div class="flex gap-3 mt-6">
+                <button
+                    type="button"
+                    onclick={close}
+                    disabled={isLoading}
+                    class="flex-1 px-4 py-2 rounded bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-200 dark:hover:bg-zinc-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
                     >取消</button
                 >
                 <button
-                    class="submit"
+                    type="button"
                     onclick={handleSubmit}
                     disabled={isLoading}
+                    class="flex-1 px-4 py-2 rounded bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-70 disabled:cursor-not-allowed"
+                    >{isLoading ? "发送中..." : "发送消息"}</button
                 >
-                    {isLoading ? "发送中..." : "发送消息"}
-                </button>
             </div>
         </div>
     </div>
 {/if}
-
-<style>
-    .dialog-mask {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 1000;
-    }
-
-    .dialog-container {
-        background: white;
-        padding: 2rem;
-        border-radius: 8px;
-        width: 90%;
-        max-width: 500px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    h2 {
-        margin: 0 0 1.5rem;
-        color: #333;
-        font-size: 1.5rem;
-    }
-
-    .form-group {
-        margin-bottom: 1.2rem;
-    }
-
-    label {
-        display: block;
-        margin-bottom: 0.5rem;
-        color: #666;
-        font-weight: 500;
-    }
-
-    select,
-    input,
-    textarea {
-        width: -webkit-fill-available;
-        padding: 0.8rem;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 1rem;
-    }
-
-    textarea {
-        height: 120px;
-        resize: vertical;
-    }
-
-    .error-message {
-        color: #dc3545;
-        background: #ffe6e6;
-        padding: 0.8rem;
-        border-radius: 4px;
-        margin-bottom: 1.2rem;
-        font-size: 0.9rem;
-    }
-
-    .action-buttons {
-        display: flex;
-        gap: 1rem;
-        margin-top: 1.5rem;
-    }
-
-    button {
-        flex: 1;
-        padding: 0.8rem 1.2rem;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-weight: 500;
-        transition: all 0.2s;
-    }
-
-    .submit {
-        background: #007bff;
-        color: white;
-    }
-
-    .submit:hover:not(:disabled) {
-        background: #0056b3;
-    }
-
-    .cancel {
-        background: #f8f9fa;
-        color: #666;
-    }
-
-    .cancel:hover:not(:disabled) {
-        background: #e9ecef;
-    }
-
-    button:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-    }
-</style>
