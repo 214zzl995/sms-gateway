@@ -1,5 +1,6 @@
 <script>
-    import { onMount } from "svelte";
+  import "./app.css";
+  import { onMount } from "svelte";
   import { updateStorageValue } from "./js/storage";
   import DeciceInfo from "./lib/DeciceInfo.svelte";
   import DeviceList from "./lib/DeviceList.svelte";
@@ -14,7 +15,9 @@
 
   let selectedDevice = $state(null);
 
-  const selectDevice = (/** @type {{ name: string | number | boolean; }} */ device) => {
+  const selectDevice = (
+    /** @type {{ name: string | number | boolean; }} */ device,
+  ) => {
     selectedDevice = device;
     if (device) {
       history.replaceState(null, null, `#${encodeURIComponent(device.name)}`);
@@ -33,8 +36,8 @@
     console.log(hashValue);
     if (hashValue) {
       const decodedHash = decodeURIComponent(hashValue);
-      const unsubscribe = devices.subscribe($devices => {
-        const target = $devices.find(d => d.name === decodedHash);
+      const unsubscribe = devices.subscribe(($devices) => {
+        const target = $devices.find((d) => d.name === decodedHash);
         if (target) {
           selectedDevice = target;
         }
@@ -73,9 +76,10 @@
     <MessageList {selectedDevice} />
   </div>
 </div>
+
 <SendDialog bind:value={sendDialogShow} />
 
-<style global>
+<style>
   .icon {
     width: 32px;
     height: 32px;
