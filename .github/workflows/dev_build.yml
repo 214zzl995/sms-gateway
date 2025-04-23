@@ -62,7 +62,7 @@ jobs:
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-artifacts
+          name: sms-gateway-${{ matrix.rust_target }}
           path: |
             target/${{ matrix.rust_target }}/release/sms-gateway
   release:
@@ -71,7 +71,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: release-artifacts
           path: ./artifacts
 
       - name: Show files
