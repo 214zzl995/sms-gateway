@@ -44,15 +44,15 @@ jobs:
           rust: stable
           cache-key: ${{ matrix.rust_target }}
           target: ${{ matrix.rust_target }}
-
-      - name: Run cargo check
-        run: cargo check --target ${{ matrix.rust_target }}
-        shell: bash
-
+          
       # 安装 musl 工具链（GNU 下可以跳过）
       - name: Install additional native dependencies
         if: matrix.rust_target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Run cargo check
+        run: cargo check --target ${{ matrix.rust_target }}
+        shell: bash
 
       # 构建 Rust 项目
       - name: Build Rust project
