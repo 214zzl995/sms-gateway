@@ -34,6 +34,9 @@ jobs:
           pnpm install
           pnpm build
 
+      - name: Install system dependencies for Rust
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
       # 安装 Rust 指定工具链和目标
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
