@@ -58,13 +58,17 @@ jobs:
       - name: Build Rust project
         run: cargo build --release --target ${{ matrix.rust_target }}
 
+      - name: Rename for release
+        run: mv target/${{ matrix.rust_target }}/release/sms-gateway target/sms-gateway-${{ matrix.rust_target }}
+        
       # 上传产物
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: sms-gateway-${{ matrix.rust_target }}
-          path: |
-            target/${{ matrix.rust_target }}/release/sms-gateway
+          path: target/sms-gateway-${{ matrix.rust_target }}
+          if-no-files-found: error
+          
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -73,15 +77,8 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Flatten and rename binaries
-        run: |
-          for dir in ./artifacts/*; do
-            if [ -d "$dir" ]; then
-              target="$(basename "$dir")"
-              cp "$dir/sms-gateway" "./artifacts/sms-gateway-$target"
-            fi
-          done
-          ls -lh ./artifacts
+      - name: Show files
+        run: find ./artifacts
 
       - name: Publish to dev release
         uses: ncipollo/release-action@v1
@@ -92,5 +89,5 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           commit: ${{ github.sha }}
-          artifacts: ./artifacts/sms-gateway-*
+          artifacts: ./artifacts/*/*
           generateReleaseNotes: false
