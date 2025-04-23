@@ -65,3 +65,26 @@ jobs:
           name: app-${{ matrix.rust_target }}
           path: |
             target/${{ matrix.rust_target }}/release/sms-gateway
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: ./artifacts
+
+      - name: Show files
+        run: ls -lh ./artifacts
+
+      - name: Publish to dev release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: dev
+          name: "Development Build"
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          commit: ${{ github.sha }}
+          artifacts: ./artifacts/*
+          generateReleaseNotes: false
