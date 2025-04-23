@@ -73,8 +73,15 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Show files
-        run: find ./artifacts
+      - name: Flatten and rename binaries
+        run: |
+          for dir in ./artifacts/*; do
+            if [ -d "$dir" ]; then
+              target="$(basename "$dir")"
+              cp "$dir/sms-gateway" "./artifacts/sms-gateway-$target"
+            fi
+          done
+          ls -lh ./artifacts
 
       - name: Publish to dev release
         uses: ncipollo/release-action@v1
@@ -85,5 +92,5 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           commit: ${{ github.sha }}
-          artifacts: ./artifacts/*
+          artifacts: ./artifacts/sms-gateway-*
           generateReleaseNotes: false
