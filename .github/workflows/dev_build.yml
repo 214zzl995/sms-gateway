@@ -74,7 +74,7 @@ jobs:
           path: ./artifacts
 
       - name: Show files
-        run: ls -lh ./artifacts
+        run: find ./artifacts
 
       - name: Publish to dev release
         uses: ncipollo/release-action@v1
