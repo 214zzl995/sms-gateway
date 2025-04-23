@@ -38,16 +38,16 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
 
       # 安装 Rust 指定工具链和目标
-      - name: Set up Rust toolchain 
-        uses: rust-lang/setup-rust@v1
+      - name: Install Rust toolchain
+        uses: ./.github/composite/rust
         with:
-          toolchain: stable
+          rust: stable
+          cache-key: ${{ matrix.rust_target }}
           target: ${{ matrix.rust_target }}
 
       - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
+        run: cargo check --target ${{ matrix.rust_target }}
+        shell: bash
 
       # 安装 musl 工具链（GNU 下可以跳过）
       - name: Install additional native dependencies
