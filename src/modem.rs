@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use crate::db::SMS;
+use crate::db::{ModemSMS, SMS};
 use crate::decode::parse_pdu_sms;
 
 const TERMINATORS: &[&[u8]] = &[
@@ -194,15 +194,12 @@ impl Modem {
 
         // Final response validation
         if ok_received && cmgs_received {
-            let sms = SMS {
-                index: 0,
-                id: None,
-                sender: None,
-                receiver: Some(mobile.to_string()),
+            let sms = ModemSMS {
+                contact: mobile.to_string(),
                 timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
                 message: message.to_string(),
                 device: self.name.clone(),
-                local_send: true,
+                send: true,
             };
             tokio::spawn(async move {
                 let _ = sms.insert().await.is_err_and(|err| {
@@ -287,15 +284,12 @@ impl Modem {
 
         // Final response validation
         if ok_received && cmgs_received {
-            let sms = SMS {
-                index: 0,
-                id: None,
-                sender: None,
-                receiver: Some(mobile.to_string()),
+            let sms = ModemSMS {
+                contact: mobile.to_string(),
                 timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
                 message: message.to_string(),
                 device: self.name.clone(),
-                local_send: true,
+                send: true,
             };
             tokio::spawn(async move {
                 let _ = sms.insert().await.is_err_and(|err| {
@@ -320,7 +314,7 @@ impl Modem {
     pub async fn read_sms_async_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
         tokio::spawn(async move {
-            if let Err(err) = SMS::bulk_insert(&sms_list).await {
+            if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
                 log::error!("Insert SMS error: {}", err);
             };
         });
@@ -329,12 +323,12 @@ impl Modem {
 
     pub async fn read_sms_sync_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
-        SMS::bulk_insert(&sms_list).await?;
+        ModemSMS::bulk_insert(&sms_list).await?;
         Ok(())
     }
 
     /// Read SMS messages based on the specified type
-    pub async fn read_sms(&self, sms_type: SmsType) -> io::Result<Vec<SMS>> {
+    pub async fn read_sms(&self, sms_type: SmsType) -> io::Result<Vec<ModemSMS>> {
         // Send the AT command to list SMS messages
         let command = format!("AT+CMGL=\"{}\"\r\n", sms_type.to_at_command_pdu());
 
