@@ -11,7 +11,7 @@ use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{db::SMS, modem::SmsType, Devices};
+use crate::{db::{Contact, Conversation, SMS}, modem::SmsType, Devices};
 
 mod auth;
 
@@ -40,6 +40,14 @@ pub async fn run_api(
         .route(
             "/refresh/{name}",
             get(refresh_sms).with_state(devices.clone()),
+        )
+        .route(
+            "/contacts",
+            get(get_contacts),
+        )
+        .route(
+            "/conversation",
+            get(get_conversation),
         )
         .layer(axum::middleware::from_fn_with_state(
             (username.to_string(), password.to_string()),
@@ -71,12 +79,12 @@ pub struct SmsQuery {
     page: u32,
     per_page: u32,
     #[serde(default)]
-    device: Option<String>,
+    contact_id: Option<i64>,
 }
 
 pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
-    let result = match &query.device {
-        Some(device) => SMS::paginate_by_device(device, query.page, query.per_page).await,
+    let result = match &query.contact_id {
+        Some(contact_id) => SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await,
         None => SMS::paginate(query.page, query.per_page).await,
     };
 
@@ -192,6 +200,16 @@ pub async fn refresh_sms(
 
 pub async fn check() -> impl IntoResponse {
     StatusCode::NO_CONTENT
+}
+
+pub async fn get_contacts() -> Json<Vec<Contact>> {
+    let contacts = Contact::query_all().await.unwrap();
+    Json(contacts)
+}
+
+pub async fn get_conversation() -> Json<Vec<Conversation>> {
+    let conversation = Conversation::query_all().await.unwrap();
+    Json(conversation)
 }
 
 async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {

@@ -55,22 +55,6 @@ pub struct Conversation {
 }
 
 impl SMS {
-    /// Retrieves all SMS records
-    pub async fn _all() -> Result<Vec<Self>> {
-        let pool = get_pool()?;
-        let sms_list = sqlx::query_as(
-            r#"
-            SELECT id, sender, receiver, timestamp, message, device, 
-                   local_send 
-            FROM sms 
-            ORDER BY timestamp DESC
-            "#,
-        )
-        .fetch_all(pool)
-        .await?;
-        Ok(sms_list)
-    }
-
     pub async fn count() -> Result<i64> {
         let pool = get_pool()?;
         let count = sqlx::query_scalar(
@@ -83,7 +67,7 @@ impl SMS {
         Ok(count)
     }
 
-    pub async fn device_count(device: &str) -> Result<i64> {
+    pub async fn count_by_device(device: &str) -> Result<i64> {
         let pool = get_pool()?;
         let count = sqlx::query_scalar(
             r#"
@@ -91,6 +75,19 @@ impl SMS {
             "#,
         )
         .bind(device)
+        .fetch_one(pool)
+        .await?;
+        Ok(count)
+    }
+
+    pub async fn count_by_contact_id(contact_id: &i64) -> Result<i64> {
+        let pool = get_pool()?;
+        let count = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM sms WHERE contact_id = ?
+            "#,
+        )
+        .bind(contact_id)
         .fetch_one(pool)
         .await?;
         Ok(count)
@@ -106,8 +103,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, sender, receiver, timestamp, message, device, 
-                   local_send 
+            SELECT id, contact_id, timestamp, message, device, send, read
             FROM sms 
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
@@ -123,8 +119,8 @@ impl SMS {
         Ok((sms_list, total))
     }
 
-    pub async fn paginate_by_device(
-        device: &str,
+    pub async fn paginate_by_contact_id(
+        contact_id: &i64,
         page: u32,
         per_page: u32,
     ) -> Result<(Vec<Self>, i64)> {
@@ -139,65 +135,48 @@ impl SMS {
             SELECT id, sender, receiver, timestamp, message, device, 
                    local_send 
             FROM sms 
-            WHERE device = ?
+            WHERE contact_id = ?
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
             "#,
         )
-        .bind(device)
+        .bind(contact_id)
         .bind(per_page as i32)
         .bind(offset as i32)
         .fetch_all(pool)
         .await?;
 
-        let total = SMS::device_count(device).await?;
+        let total = SMS::count_by_contact_id(contact_id).await?;
 
         Ok((sms_list, total))
     }
 
-    /// Inserts a single SMS record into the database
-    pub async fn _insert(&self) -> Result<()> {
-        let pool = get_pool()?;
+}
 
-        sqlx::query(
-            r#"
-            INSERT INTO sms (contact_id, timestamp, message, device, send)
-            VALUES (?, ?, ?, ?, ?, ?)
-            "#,
+impl Contact {
+    pub async fn query_all() -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let contacts = sqlx::query_as(
+            "SELECT id, name FROM contacts"
         )
-        .bind(&self.contact_id)
-        .bind(&self.timestamp)
-        .bind(&self.message)
-        .bind(&self.device)
-        .bind(self.send)
-        .execute(pool)
+        .fetch_all(pool)
         .await?;
 
-        Ok(())
+        Ok(contacts)
     }
+}
 
-    /// Inserts multiple SMS records in bulk with batch size limitation
-    pub async fn _bulk_insert(records: &[Self]) -> Result<()> {
+impl Conversation {
+    pub async fn query_all() -> Result<Vec<Self>> {
         let pool = get_pool()?;
 
-        // Process records in batches of MAX_BATCH_SIZE
-        for chunk in records.chunks(MAX_BATCH_SIZE) {
-            let mut query_builder = QueryBuilder::new(
-                "INSERT INTO sms (contact_id, timestamp, message, device, send) ",
-            );
+        let conversations = sqlx::query_as(
+              "SELECT id, name, timestamp, message, read FROM v_contacts"
+        )
+        .fetch_all(pool)
+        .await?;
 
-            query_builder.push_values(chunk, |mut b, sms| {
-                b.push_bind(&sms.contact_id)
-                    .push_bind(&sms.timestamp)
-                    .push_bind(&sms.message)
-                    .push_bind(&sms.device)
-                    .push_bind(sms.send);
-            });
-
-            query_builder.build().execute(pool).await?;
-        }
-
-        Ok(())
+        Ok(conversations)
     }
 }
 
@@ -319,8 +298,7 @@ impl ModemSMS {
                     .push_bind(&sms.timestamp)
                     .push_bind(&sms.message)
                     .push_bind(&sms.device)
-                    .push_bind(&sms.send)
-                    ;
+                    .push_bind(&sms.send);
             });
 
             query_builder.build().execute(&mut *transaction).await?;
