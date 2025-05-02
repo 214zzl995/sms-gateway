@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use crate::db::{ModemSMS, SMS};
+use crate::db::ModemSMS;
 use crate::decode::parse_pdu_sms;
 
 const TERMINATORS: &[&[u8]] = &[
@@ -313,17 +313,21 @@ impl Modem {
 
     pub async fn read_sms_async_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
-        tokio::spawn(async move {
-            if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
-                log::error!("Insert SMS error: {}", err);
-            };
-        });
+        if !sms_list.is_empty() {
+            tokio::spawn(async move {
+                if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
+                    log::error!("Insert SMS error: {}", err);
+                };
+            });
+        }
         Ok(())
     }
 
     pub async fn read_sms_sync_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
-        ModemSMS::bulk_insert(&sms_list).await?;
+        if !sms_list.is_empty() {
+            ModemSMS::bulk_insert(&sms_list).await?;
+        }
         Ok(())
     }
 

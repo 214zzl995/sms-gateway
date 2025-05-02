@@ -132,8 +132,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, sender, receiver, timestamp, message, device, 
-                   local_send 
+            SELECT id, contact_id, timestamp, message, device, send, read
             FROM sms 
             WHERE contact_id = ?
             ORDER BY timestamp DESC
@@ -171,7 +170,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, read FROM v_contacts"
+              "SELECT id, name, timestamp, message, read FROM v_contacts ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;
