@@ -1,11 +1,11 @@
-create table contact
+create table contacts
 (
     id   integer primary key autoincrement,
     name text
 );
 
-create index idx_contact_name on contact (name);
-create unique index idx_contact_name_unique on contact (name);
+create index idx_contacts_name on contacts (name);
+create unique index idx_contacts_name_unique on contacts (name);
 
 create table sms
 (
@@ -21,9 +21,9 @@ create table sms
 create index idx_sms_contact_timestamp on sms (contact_id, timestamp desc);
 create index idx_sms_contact_id on sms (contact_id);
 
-create view v_contact as
+create view v_contacts as
 select c.id, c.name, s.timestamp, s.message, s.read
-from contact c
+from contacts c
          left join (select *
                     from (select s.*,
                                  row_number() over (partition by contact_id order by timestamp desc) as rn

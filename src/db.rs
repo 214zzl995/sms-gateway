@@ -3,9 +3,10 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::Row;
 use sqlx::{migrate, Sqlite, Transaction};
 use sqlx::{FromRow, QueryBuilder};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 const MAX_BATCH_SIZE: usize = 500;
@@ -268,12 +269,12 @@ impl ModemSMS {
 
         let mut transaction = pool.begin().await?;
 
-        let mut contact_ids = HashSet::new();
+        let mut contact_names = HashSet::new();
         for record in records {
-            contact_ids.insert(record.contact.clone());
+            contact_names.insert(record.contact.clone());
         }
 
-        let contact_ids = contact_ids
+        let contact_ids = contact_names
             .iter()
             .map(|contact| contact.clone())
             .collect::<Vec<String>>();
@@ -281,34 +282,46 @@ impl ModemSMS {
         for chunk in contact_ids.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new("INSERT OR IGNORE INTO contacts (name) ");
 
-            for contact in chunk {
-                query_builder.push_values(chunk, |mut b, sms| {
-                    b.push_bind(contact);
-                });
-            }
+            query_builder.push_values(chunk, |mut b, contact| {
+                b.push_bind(contact);
+            });
 
             query_builder.build().execute(&mut *transaction).await?;
         }
+
+        let mut query_builder = QueryBuilder::new("SELECT id, name FROM contacts WHERE name IN (");
+
+        let mut separated = query_builder.separated(", ");
+        for contact in contact_names.iter() {
+            separated.push_bind(contact);
+        }
+        separated.push_unseparated(") ");
+
+        let rows = query_builder.build().fetch_all(&mut *transaction).await?;
+
+        let contact_map: HashMap<String, i64> = rows
+            .into_iter()
+            .map(|row| {
+                let id: i64 = row.try_get(0).unwrap();
+                let name: String = row.try_get(1).unwrap();
+
+                (name, id)
+            })
+            .collect();
 
         for chunk in records.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new(
                 "INSERT INTO sms (contact_id, timestamp, message, device, send) ",
             );
-            query_builder.push("SELECT c.id, * FROM (VALUES ");
 
-            let mut separated = query_builder.separated(", ");
-
-            for record in chunk {
-                separated
-                    .push_bind(&record.contact)
-                    .push_bind(&record.timestamp)
-                    .push_bind(&record.message)
-                    .push_bind(&record.device)
-                    .push_bind(record.send);
-            }
-
-            query_builder.push(") AS v(name, timestamp, message, device, send) ");
-            query_builder.push("JOIN contact c ON c.name = v.name");
+            query_builder.push_values(chunk, |mut b, sms| {
+                b.push_bind(contact_map.get(&sms.contact))
+                    .push_bind(&sms.timestamp)
+                    .push_bind(&sms.message)
+                    .push_bind(&sms.device)
+                    .push_bind(&sms.send)
+                    ;
+            });
 
             query_builder.build().execute(&mut *transaction).await?;
         }
