@@ -38,6 +38,10 @@ pub async fn run_api(
             get(get_modem_detail).with_state(devices.clone()),
         )
         .route(
+            "/device/{name}/sms/count",
+            get(get_device_sms_count).with_state(devices.clone()),
+        )
+        .route(
             "/refresh/{name}",
             get(refresh_sms).with_state(devices.clone()),
         )
@@ -210,6 +214,13 @@ pub async fn get_contacts() -> Json<Vec<Contact>> {
 pub async fn get_conversation() -> Json<Vec<Conversation>> {
     let conversation = Conversation::query_all().await.unwrap();
     Json(conversation)
+}
+
+async fn get_device_sms_count(Path(name): Path<String>) -> Response  {
+    match SMS::count_by_device(&name).await {
+        Ok(count) => (StatusCode::OK, Json(count)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
