@@ -5,6 +5,7 @@ create table contact
 );
 
 create index idx_contact_name on contact (name);
+create unique index idx_contact_name_unique on contact (name);
 
 create table sms
 (
