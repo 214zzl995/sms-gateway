@@ -32,10 +32,9 @@ pub async fn run_api(
         .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
         .route("/sms", post(send_sms).with_state(devices.clone()))
-        .route("/device", get(get_all_modem).with_state(devices.clone()))
         .route(
-            "/device/{name}",
-            get(get_modem_detail).with_state(devices.clone()),
+            "/device",
+            get(get_all_modem_details).with_state(devices.clone()),
         )
         .route(
             "/device/{name}/sms/count",
@@ -131,61 +130,46 @@ pub async fn send_sms(
     }
 }
 
-pub async fn get_all_modem(State(devices): State<Devices>) -> Json<Vec<ModemInfo>> {
-    let modem_list = devices
-        .values()
-        .map(|modem| ModemInfo {
-            name: modem.name.clone(),
-            com_port: modem.com_port.clone(),
-            baud_rate: modem.baud_rate,
-        })
-        .collect();
-    Json(modem_list)
-}
-
-pub async fn get_modem_detail(
-    Path(name): Path<String>,
-    State(devices): State<Devices>,
-) -> Response {
-    match devices.get(&name) {
-        Some(modem) => {
-            fn to_data_error<T, E: ToString>(result: Result<T, E>) -> (Option<T>, Option<String>) {
-                match result {
-                    Ok(data) => (Some(data), None),
-                    Err(e) => (None, Some(e.to_string())),
-                }
-            }
-
-            let (signal_data, signal_error) = to_data_error(modem.get_signal_quality().await);
-            let (network_data, network_error) =
-                to_data_error(modem.check_network_registration().await);
-            let (operator_data, operator_error) = to_data_error(modem.check_operator().await);
-            let (model_data, model_error) = to_data_error(modem.get_modem_model().await);
-
-            let response = json!({
-                "signal_quality": {
-                    "data": signal_data,
-                    "error": signal_error
-                },
-                "network_registration": {
-                    "data": network_data,
-                    "error": network_error
-                },
-                "operator": {
-                    "data": operator_data,
-                    "error": operator_error
-                },
-                "modem_model": {
-                    "data": model_data,
-                    "error": model_error
-                }
-            });
-
-            (StatusCode::OK, Json(response)).into_response()
+pub async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
+    fn to_data_error<T, E: ToString>(result: Result<T, E>) -> (Option<T>, Option<String>) {
+        match result {
+            Ok(data) => (Some(data), None),
+            Err(e) => (None, Some(e.to_string())),
         }
-        None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
     }
+
+    let mut details = Vec::new();
+
+    for (name, modem) in devices.iter() {
+        let (signal_data, signal_error) = to_data_error(modem.get_signal_quality().await);
+        let (network_data, network_error) = to_data_error(modem.check_network_registration().await);
+        let (operator_data, operator_error) = to_data_error(modem.check_operator().await);
+        let (model_data, model_error) = to_data_error(modem.get_modem_model().await);
+
+        details.push(json!({
+            "name": name,
+            "signal_quality": {
+                "data": signal_data,
+                "error": signal_error
+            },
+            "network_registration": {
+                "data": network_data,
+                "error": network_error
+            },
+            "operator": {
+                "data": operator_data,
+                "error": operator_error
+            },
+            "modem_model": {
+                "data": model_data,
+                "error": model_error
+            }
+        }));
+    }
+
+    (StatusCode::OK, Json(details)).into_response()
 }
+
 
 pub async fn refresh_sms(
     Path(name): Path<String>,

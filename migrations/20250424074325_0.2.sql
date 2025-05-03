@@ -22,7 +22,7 @@ create index idx_sms_contact_timestamp on sms (contact_id, timestamp desc);
 create index idx_sms_contact_id on sms (contact_id);
 
 create view v_contacts as
-select c.id, c.name, s.timestamp, s.message, s.read
+select c.id, c.name, s.timestamp, s.message, s.read, s.device
 from contacts c
          left join (select *
                     from (select s.*,

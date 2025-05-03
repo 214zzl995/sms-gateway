@@ -41,6 +41,7 @@ pub struct Contact {
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default)]
 pub struct SMSPreview {
+    pub device: String,
     pub message: String,
     pub timestamp: NaiveDateTime,
     pub read: bool,
@@ -170,7 +171,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, read FROM v_contacts ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, read, device FROM v_contacts ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;
