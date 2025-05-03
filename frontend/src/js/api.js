@@ -68,26 +68,12 @@ class ApiClient {
     async refreshSms(modemId){
         return FetchApi.get(`/api/refresh/${modemId}`)
     }
+
+    async getConversation(){
+        return FetchApi.get('/api/conversation')
+    }
 }
 
 // Export as a singleton
 export const apiClient = new ApiClient();
 
-// ---------------------------
-// Usage examples:
-// import { apiClient } from './api';
-
-// Check authentication after login
-// const isValid = await apiClient.checkAuth();
-
-// Get the first page of SMS (20 items per page)
-// const smsData = await apiClient.getSmsPaginated(1, 20);
-
-// Send an SMS
-// await apiClient.sendSms('modem-1', '+123456789', 'Hello World');
-
-// Get SMS for a specific device
-// const deviceSms = await apiClient.getDeviceSmsPaginated('device-1', 1, 10);
-
-// Get all modems
-// const modems = await apiClient.getAllModems();
