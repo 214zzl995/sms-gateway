@@ -60,9 +60,9 @@
 <div class="flex flex-col h-full">
     <div class="flex justify-between items-center mb-2">
         <div
-            class="flex items-center border-0 rounded-md px-2 bg-gray-200 dark:bg-zinc-800 transition-colors duration-500"
+            class="flex items-center border-0 rounded-md px-2 bg-gray-200 dark:bg-zinc-700 transition-colors duration-500"
             class:bg-gray-300={searchTemporaryIsActive}
-            class:dark:bg-gray-700={searchTemporaryIsActive}
+            class:dark:bg-zinc-600={searchTemporaryIsActive}
         >
             <Icon icon="mage:search" class="text-gray-400 text-xl" />
             <input
@@ -75,8 +75,8 @@
         </div>
 
         <button
-            class="text-stone-800 text-xl p-2 rounded-full bg-gray-200 dark:bg-gray-700 ml-2
-            transition-colors duration-500 hover:bg-gray-300 dark:hover:bg-zinc-800
+            class="text-stone-800 text-xl p-2 rounded-full bg-gray-200 dark:bg-zinc-700 ml-2
+            transition-colors duration-500 hover:bg-gray-300 dark:hover:bg-zinc-600 
             hover:text-gray-800 dark:hover:text-gray-100 dark:text-gray-100"
             onclick={createNewMessage}
         >
@@ -92,10 +92,10 @@
                         animate:flip={{ duration: 200, delay: 0 }}
                         transition:fade={{ duration: 150 }}
                         class="conversation-item flex flex-row items-center p-2 gap-2 cursor-pointer focus:outline-none focus:ring-0
-                        hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors duration-300 rounded-md relative"
+                        hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors duration-300 rounded-md relative"
                         class:bg-gray-200={$currentConversation?.id ===
                             conversation.contact.id}
-                        class:dark:bg-gray-700={$currentConversation?.id ===
+                        class:dark:bg-zinc-700={$currentConversation?.id ===
                             conversation.contact.id}
                         role="button"
                         onclick={() => conversationHandleClick(conversation)}
