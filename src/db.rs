@@ -151,6 +151,24 @@ impl SMS {
         Ok((sms_list, total))
     }
 
+    pub async fn insert(&self) -> Result<i64> {
+        let pool = get_pool()?;
+        let sms_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO sms (contact_id, timestamp, message, device, send, read)
+            "#,
+        )
+        .bind(self.contact_id)
+        .bind(&self.timestamp)
+        .bind(&self.message)
+        .bind(&self.device)
+        .bind(&self.send)
+        .bind(&self.read)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(sms_id)
+    }
 }
 
 impl Contact {
@@ -163,6 +181,32 @@ impl Contact {
         .await?;
 
         Ok(contacts)
+    }
+
+    pub async fn query_by_id(id: &i64) -> Result<Self> {
+        let pool = get_pool()?;
+        let contact = sqlx::query_as(
+            "SELECT id, name FROM contacts WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(contact)
+    }
+
+    pub async fn insert(name: &str) -> Result<i64> {
+        let pool = get_pool()?;
+        let contact_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO contacts (name) VALUES (?) RETURNING id
+            "#,
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(contact_id)
     }
 }
 

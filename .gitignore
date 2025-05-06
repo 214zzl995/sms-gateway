@@ -3,3 +3,4 @@
 /frontend/dist
 /frontend/.env
 /frontend/.env.local
+.DS_Store

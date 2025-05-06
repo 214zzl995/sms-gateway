@@ -1,145 +1,256 @@
 <script>
-  import { fade } from "svelte/transition";
+  import Icon from "@iconify/svelte";
   import { apiClient } from "../js/api";
+  import { formatTimeRange, formatDate } from "../js/dateFormat";
+  import {
+    currentConversation,
+    conversationLoading,
+    newMessageConcatChange,
+    conactAddFinish,
+  } from "../stores/conversation";
+  import { fade } from "svelte/transition";
+    import { onDestroy } from "svelte";
 
-  let { selectedDevice } = $props();
+  let messages = $state([]);
+  let showNewMessage = $state(false);
+  let concatInput = $state(null);
+  let concatInputText = $state("");
+  let isAddingContact = $state(false);
+  let messageContainer;
+  let isFirstLoad = true;
+
+  let loading = $state(true);
+
+  let sendMessageLoading = $state(false);
 
   let page = $state(1);
-  let messages = $state([]);
-  let isLoading = $state(false);
-  let error = $state(null);
-  let totalPages = $state(0);
-  const per_page = 10;
+  let pageSize = $state(10);
+
+  let showLoading = $state(true);
+  let loadingTimer = null;
+
+  const loadingDuration = 150;
+
+  /**
+ * Enhanced URL regex that better handles URLs with surrounding punctuation
+ * and properly excludes Chinese parentheses (（）) from the URL
+ */
+const urlRegex = /https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+
+/**
+ * Formats text by converting URLs into HTML anchor tags
+ * @param {string} text - The input text containing URLs to format
+ * @returns {string} Text with URLs converted to HTML links
+ */
+function formatMessageWithLinks(text) {
+  if (!text) return '';
+  
+  // Create a copy of the text to work with
+  let formattedText = text;
+  
+  // Replace URLs with anchor tags
+  const matches = text.match(urlRegex);
+  
+  if (matches) {
+    matches.forEach(url => {
+      // Make sure we're getting the URL without Chinese parentheses
+      const cleanUrl = url.replace(/[（）]/g, '');
+      
+      formattedText = formattedText.replace(
+        url,
+        `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`
+      );
+    });
+  }
+  
+  return formattedText;
+}
 
   $effect(() => {
-    if (selectedDevice || page) {
-      loadMessages();
+    if (!$conversationLoading) {
+      if ($currentConversation && $currentConversation.id === -1) {
+        showNewMessage = true;
+        concatInput?.focus();
+      } else if ($currentConversation && $currentConversation.id !== -1) {
+        showNewMessage = false;
+      }
     }
   });
 
-  async function loadMessages() {
-    isLoading = true;
-    error = null;
-    try {
-      const response = await apiClient.getSmsPaginated(
-        page,
-        per_page,
-        selectedDevice?.name,
-      );
-
-      if (response.status === 200) {
-        messages = response.data.data || [];
-        totalPages = Math.ceil(response.data.total / 10);
-      }
-    } catch (err) {
-      error = err.message?.includes("Failed to fetch")
-        ? "Network error: Unable to connect to server"
-        : `Error loading messages: ${err.message}`;
-    } finally {
-      isLoading = false;
+  $effect(() => {
+    if (!isAddingContact && showNewMessage) {
+      newMessageConcatChange(concatInputText);
     }
-  }
+  });
 
-  function nextPage() {
-    if (page < totalPages) page++;
-  }
+  $effect(() => {
+    if ($currentConversation && $currentConversation.id !== -1) {
+      loading = true;
+      isFirstLoad = true;
+      apiClient
+        .getSmsPaginated(page, pageSize, $currentConversation.id)
+        .then((res) => {
+          messages = res.data.data;
 
-  function prevPage() {
-    if (page > 1) page--;
-  }
+          loading = false;
+          requestAnimationFrame(() => {});
+        });
+    }
+
+    if ($currentConversation && $currentConversation.id === -1) {
+      loading = false;
+      requestAnimationFrame(() => {});
+      messages = [];
+    }
+  });
+
+  $effect(() => {
+     if (loading) {
+      showLoading = true;
+      if (loadingTimer) clearTimeout(loadingTimer);
+    } else {
+      if (loadingTimer) clearTimeout(loadingTimer);
+      loadingTimer = setTimeout(() => {
+        showLoading = false;
+      }, loadingDuration);
+    }
+  });
+
+  const concatInputHandleKeyDown = (/** @type {any} */ event) => {
+    if (event.key === "Enter") {
+      concatInputHandleClick();
+    }
+  };
+
+  const concatInputHandleClick = () => {
+    isAddingContact = true;
+    conactAddFinish(concatInputText);
+    concatInputText = "";
+    isAddingContact = false;
+  };
+
+
+  onDestroy(() => {
+    if (loadingTimer) clearTimeout(loadingTimer);
+  });
+
+  
 </script>
 
-<div class="flex flex-col h-full max-h-[calc(100vh-150px)] overflow-hidden">
-  <!-- 分页放在顶部标题栏下面 -->
-  <div
-    class="flex items-center justify-center gap-4 p-4 bg-gray-100 dark:bg-zinc-800 rounded-md mb-4"
+<div class="flex flex-col h-full relative">
+  <header
+    class="bg-gray-100/70 dark:bg-zinc-900/70 backdrop-blur-md p-2 h-12 flex items-center text-gray-400
+     text-sm transition-colors duration-300 absolute top-0 left-0 right-0 z-10"
+    class:text-gray-600={showNewMessage}
   >
-    <button
-      onclick={prevPage}
-      disabled={page === 1}
-      class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 hover:text-white disabled:hover:bg-transparent"
-    >
-      ← Previous
-    </button>
-    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-      Page {page} of {totalPages}
-    </span>
-    <button
-      onclick={nextPage}
-      disabled={page === totalPages}
-      class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-600 hover:text-white disabled:hover:bg-transparent"
-    >
-      Next →
-    </button>
-  </div>
+    收件人:
+    {#if !$conversationLoading}
+      {#if showNewMessage}
+        <input
+          type="text"
+          class="rounded-md p-2 bg-transparent focus:outline-none focus:ring-0"
+          bind:value={concatInputText}
+          bind:this={concatInput}
+          onkeydown={concatInputHandleKeyDown}
+        />
+      {:else if $currentConversation}
+        {$currentConversation.name}
+      {/if}
+    {/if}
+  </header>
 
-  <!-- 消息内容滚动区 -->
-  <div class="flex-1 overflow-y-auto px-4">
-    {#if isLoading}
-      <div
-        class="flex items-center justify-center gap-2 p-8 text-gray-600 dark:text-gray-400"
-      >
+  <div class="flex-1 overflow-hidden relative">
+    {#if showLoading}
+      <div class="h-full flex justify-center items-center absolute inset-0 z-9" transition:fade={{ duration: loadingDuration }}>
         <div
-          class="w-6 h-6 border-4 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+          class="inline-block animate-spin rounded-full border-2 border-t-gray-800 border-gray-300 w-5 h-5"
         ></div>
-        <span>Loading messages...</span>
-      </div>
-    {:else if error}
-      <div
-        class="p-8 rounded bg-red-100 text-red-700 flex flex-col items-center gap-4"
-      >
-        <span>⚠️ {error}</span>
-        <button
-          onclick={loadMessages}
-          class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-        >
-          Retry
-        </button>
-      </div>
-    {:else if messages.length === 0}
-      <div
-        class="p-8 rounded bg-gray-100 dark:bg-zinc-700 text-gray-500 dark:text-gray-400 text-center select-none"
-      >
-        📭 No messages found for this device
       </div>
     {:else}
-      {#each messages as message (message.id)}
-        <div
-          transition:fade
-          class="mb-6 p-4 rounded-lg shadow-md bg-white dark:bg-zinc-900 cursor-pointer
-            transition-transform duration-200
-            {message.sender
-            ? 'border-l-4 border-blue-500'
-            : 'border-l-4 border-green-500'}
-            hover:translate-x-1"
-        >
-          <div
-            class="text-xs text-gray-500 dark:text-gray-400 mb-2 select-none flex gap-2"
-          >
-            {#if message.sender}
-              <span>sender: {message.sender}</span>
+      <div 
+        class="h-full overflow-y-auto flex flex-col-reverse message-container z-9 absolute inset-0"
+        transition:fade={{ duration: loadingDuration }}
+      >
+        <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
+          {#each messages as message, index}
+            <div
+              class="flex mb-2"
+              class:justify-end={message.send}
+              class:justify-start={!message.send}
+            >
+              <div class="relative">
+                <div
+                  class="relative px-4 py-2 text-sm max-w-[70%] rounded-lg
+                  {message.send
+                    ? 'bg-blue-500 text-white before:bg-blue-500'
+                    : 'bg-gray-200 dark:bg-zinc-800 before:bg-gray-200 before:dark:bg-zinc-800'}
+                  before:content-[''] before:absolute before:w-2 before:h-2 before:rotate-45 before:top-[10px]
+                  {message.send ? 'before:-right-1' : 'before:-left-1'}"
+                >
+                  {@html formatMessageWithLinks(message.message)}
+                </div>
+              </div>
+            </div>
+            {@const timeHeader = formatTimeRange(
+              message.timestamp,
+              index === messages.length - 1
+                ? null
+                : messages[index - 1]?.timestamp,
+            )}
+            {#if timeHeader || index === messages.length - 1}
+              <div class="flex justify-center text-xs text-gray-400 my-1">
+                {timeHeader || formatDate(message.timestamp)}
+              </div>
             {/if}
-            {#if message.receiver}
-              <span>receiver: {message.receiver}</span>
-            {/if}
-          </div>
-
-          <div class="text-sm text-gray-800 dark:text-gray-200 mb-2">
-            {message.message}
-          </div>
-
-          <div
-            class="flex justify-between text-xs text-gray-500 dark:text-gray-400 italic select-none"
-          >
-            <span class="hidden md:inline-block">
-              {#if !selectedDevice}
-                {message.device}
-              {/if}
-            </span>
-            <span>{message.timestamp}</span>
-          </div>
+          {/each}
         </div>
-      {/each}
+      </div>
     {/if}
   </div>
+
+  <div
+    class="h-20 flex items-center justify-center bg-white/70 dark:bg-zinc-900/70 z-10 backdrop-blur-md absolute bottom-0 left-0 right-0"
+  >
+    <div
+      class="flex items-center justify-between rounded-full p-2 w-4/6 bg-gray-100 dark:bg-zinc-800"
+    >
+      <input
+        type="text"
+        class="ml-2 mr-2 bg-transparent focus:outline-none focus:ring-0 flex-1"
+      />
+      <button
+        class="rounded-full flex items-center justify-center hover:text-blue-500 transition-colors duration-300 mr-2"
+        onclick={() => {
+        
+        }}
+      >
+        <Icon icon="mage:direction-up-right-2-fill" class="w-6 h-6" />
+      </button>
+    </div>
+  </div>
 </div>
+
+<style>
+  .message-container::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .message-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .message-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
+  }
+
+  .message-container::-webkit-scrollbar-button:start:decrement {
+    height: 3rem;
+    display: block;
+  }
+
+  .message-container::-webkit-scrollbar-button:end:increment {
+    height: 5rem;
+    display: block;
+  }
+</style>

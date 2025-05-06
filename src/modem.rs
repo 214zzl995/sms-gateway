@@ -6,7 +6,7 @@ use std::io::{self, Read, Write};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use crate::db::ModemSMS;
+use crate::db::{Contact, ModemSMS, SMS};
 use crate::decode::parse_pdu_sms;
 
 const TERMINATORS: &[&[u8]] = &[
@@ -222,10 +222,10 @@ impl Modem {
     }
 
     /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
-    pub async fn send_sms_pdu(&self, mobile: &str, message: &str) -> anyhow::Result<String> {
-        info!("Sending SMS via PDU to {}: {}", mobile, message);
+    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<String> {
+        info!("Sending SMS via PDU to {}: {}", contact.name, message);
         // Step 0: PDU encoding
-        let (pdu_data, tpdu_length) = build_pdu(mobile, message)?;
+        let (pdu_data, tpdu_length) = build_pdu(&contact.name, message)?;
         // Step 1: Initialize SMS sending
         let mut port = self.port.lock().await;
         self.send_locked(&format!("AT+CMGS={}\r", tpdu_length), &mut port)?;
@@ -284,13 +284,17 @@ impl Modem {
 
         // Final response validation
         if ok_received && cmgs_received {
-            let sms = ModemSMS {
-                contact: mobile.to_string(),
+
+            let sms = SMS {
+                id: 0,
+                contact_id: contact.id,
                 timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
                 message: message.to_string(),
                 device: self.name.clone(),
                 send: true,
+                read: true,
             };
+
             tokio::spawn(async move {
                 let _ = sms.insert().await.is_err_and(|err| {
                     error!("{}", err);

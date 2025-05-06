@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use log::debug;
@@ -47,6 +47,10 @@ pub async fn run_api(
         .route(
             "/contacts",
             get(get_contacts),
+        )
+        .route(
+            "/contacts",
+            post(create_contact),
         )
         .route(
             "/conversation",
@@ -118,7 +122,7 @@ pub async fn send_sms(
 ) -> impl IntoResponse {
     let modem = devices.get(&payload.modem_id);
     match modem {
-        Some(m) => match m.send_sms_pdu(&payload.number, &payload.message).await {
+        Some(m) => match m.send_sms_pdu(&payload.contact, &payload.message).await {
             Ok(_) => (StatusCode::OK, "SMS sent").into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -207,6 +211,13 @@ async fn get_device_sms_count(Path(name): Path<String>) -> Response  {
     }
 }
 
+pub async fn create_contact(Json(payload): Json<String>) -> Response {
+    match Contact::insert(&payload).await {
+        Ok(id) => (StatusCode::OK, Json(id)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
 async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
@@ -234,7 +245,7 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
 #[derive(serde::Deserialize)]
 pub struct SmsPayload {
     modem_id: String,
-    number: String,
+    contact: Contact,
     message: String,
 }
 

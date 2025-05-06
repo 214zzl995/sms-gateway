@@ -25,13 +25,13 @@ class ApiClient {
      * Get paginated SMS list
      * @param {number} [page=1] - Page number
      * @param {number} [perPage=10] - Number of items per page
-     * @param {string|null} [device=null] - Optional device name (for filtering specific devices)
+     * @param {number|null} [contactId=null] - Optional contact ID (for filtering specific contacts)
      */
-    async getSmsPaginated(page = 1, perPage = 10, device = null) {
+    async getSmsPaginated(page = 1, perPage = 10, contactId = null) {
         const params = {
             page: page,
             per_page: perPage,
-            ...(device && { device }) 
+            contact_id: contactId 
         };
 
         return FetchApi.get('/api/sms', params);
@@ -40,12 +40,12 @@ class ApiClient {
     /**
      * Send an SMS
      * @param {string} modemId - Modem ID
-     * @param {string} number - Target phone number
+     * @param {object} contact - Target phone number
      * @param {string} message - SMS content
      */
-    async sendSms(modemId, number, message) {
-        const payload = { modem_id: modemId, number, message };
-        return FetchApi.post('/api/sms', payload);
+    async sendSms(modemId, contact, message) {
+        const payload = { modem_id: modemId, contact, message };
+        return FetchApi.post('/api/sms', payload)
     }
 
     /**
