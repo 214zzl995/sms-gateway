@@ -60,7 +60,7 @@
 <div class="flex flex-col h-full">
     <div class="flex justify-between items-center mb-2">
         <div
-            class="flex items-center border-0 rounded-md px-2 bg-gray-200 dark:bg-zinc-700 transition-colors duration-500"
+            class="flex items-center border-0 rounded-md px-2 bg-gray-200 dark:bg-zinc-700 transition-colors duration-500 flex-1"
             class:bg-gray-300={searchTemporaryIsActive}
             class:dark:bg-zinc-600={searchTemporaryIsActive}
         >
