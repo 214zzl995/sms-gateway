@@ -80,10 +80,10 @@ jobs:
       - name: Show files
         run: find ./artifacts
 
-      - name: Publish to dev release
+      - name: Publish to dev-latest release
         uses: ncipollo/release-action@v1
         with:
-          tag: dev
+          tag: dev-latest
           name: "Development Build"
           prerelease: true
           allowUpdates: true
