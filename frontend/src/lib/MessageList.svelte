@@ -32,7 +32,7 @@
 
   let showLoading = $state(true);
   let loadingTimer = null;
-  
+
   // Track conversation ID changes to control animations
   let prevConversationId = $state(null);
   let messageContainer = $state(null);
@@ -59,10 +59,11 @@
 
   $effect(() => {
     // Track if conversation changes
-    const isConversationChange = prevConversationId !== null && 
-                                prevConversationId !== ($currentConversation?.id || null);
+    const isConversationChange =
+      prevConversationId !== null &&
+      prevConversationId !== ($currentConversation?.id || null);
     prevConversationId = $currentConversation?.id || null;
-    
+
     loading = true;
     if ($currentConversation && $currentConversation.id !== -1) {
       apiClient
@@ -143,7 +144,7 @@
 
         formattedText = formattedText.replace(
           url,
-          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`
+          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`,
         );
       });
     }
@@ -175,40 +176,39 @@
       const currentScrollTop = messageContainer.scrollTop;
       messageContainer.scrollTo({
         top: 0,
-        behavior: 'smooth'
+        behavior: "smooth",
       });
     }
   }
 
   const sendMessage = (/** @type {String} */ device) => {
-
     if (sendMessageContent.trim() === "") {
       return;
     }
 
     sendMessageLoading = true;
-    
+
     // Mark as new message (to enable animations)
     isNewMessage = true;
-    
+
     // Add new message
     const newMessage = {
       message: sendMessageContent,
       send: true,
       timestamp: new Date(),
     };
-    
+
     // Add message to array
     messages = [newMessage, ...messages];
-    
+
     // Clear input
     sendMessageContent = "";
-    
+
     // Start smooth scroll animation
     setTimeout(() => {
       smoothScrollToTop();
     }, 50);
-    
+
     // API call would go here
     // apiClient
     //   .sendSms(device, $currentConversation, concatInputText)
@@ -222,48 +222,31 @@
   };
 
   /**
-   * Custom transition for receiving messages
+   * Custom transition for height animation
    * @param {HTMLElement} node - DOM node
    * @param {Object} params - transition parameters
    */
-  function receive(node, { duration = 300 }) {
+  function slideDown(node, { duration = 300, easing = quintOut }) {
     // Only apply animation if it's a new message, not on conversation change
     if (!isNewMessage) return {};
-    
+
+    // Get the natural height of the element
+    const height = node.offsetHeight;
+
     return {
       duration,
       css: (/** @type {number} */ t) => {
-        const eased = quintOut(t);
+        const eased = easing(t);
         return `
-        transform: scale(${eased});
-        transform-origin: ${node.classList.contains("justify-end") ? "right" : "left"} bottom;
-        opacity: ${eased};
-      `;
+          overflow: hidden;
+          height: ${eased * height}px;
+          opacity: ${t < 0.5 ? t * 2 : 1};
+          transform: translateY(${(1 - eased) * 10}px);
+        `;
       },
     };
   }
 
-  /**
-   * Custom transition for sending messages
-   * @param {HTMLElement} node - DOM node
-   * @param {Object} params - transition parameters
-   */
-  function send(node, { duration = 300 }) {
-    // Only apply animation if it's a new message, not on conversation change
-    if (!isNewMessage) return {};
-    
-    return {
-      duration,
-      css: (t) => {
-        const eased = quintOut(1 - t);
-        return `
-        transform: scale(${eased});
-        transform-origin: ${node.classList.contains("justify-end") ? "right" : "left"} bottom;
-        opacity: ${eased};
-      `;
-      },
-    };
-  }
 
   onDestroy(() => {
     if (loadingTimer) clearTimeout(loadingTimer);
@@ -311,23 +294,21 @@
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
           {#each messages as message, index (message.timestamp)}
             <div
-              class="flex mb-2"
+              class="flex mb-2 message-wrapper"
               class:justify-end={message.send}
               class:justify-start={!message.send}
-              class:animate-message={isNewMessage && index === 0}
-              in:receive={{ duration: 3000 }}
-              out:send={{ duration: 3000 }}
+              in:slideDown={{ duration: 500 }}
             >
               <div
                 class="relative max-w-[70%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%]"
               >
                 <div
                   class="relative px-4 py-2 text-sm rounded-lg
-        {message.send
+                  {message.send
                     ? 'bg-blue-500 text-white before:bg-blue-500'
                     : 'bg-gray-200 dark:bg-zinc-800 before:bg-gray-200 before:dark:bg-zinc-800'}
-        before:content-[''] before:absolute before:w-2 before:h-2 before:rotate-45 before:top-[10px]
-        {message.send ? 'before:-right-1' : 'before:-left-1'}"
+                  
+                  {message.send ? 'before:-right-1' : 'before:-left-1'}"
                 >
                   <p class="whitespace-pre-wrap break-words overflow-hidden">
                     {@html formatMessageWithLinks(message.message)}
@@ -339,13 +320,12 @@
               message.timestamp,
               index === messages.length - 1
                 ? null
-                : messages[index - 1]?.timestamp
+                : messages[index - 1]?.timestamp,
             )}
             {#if timeHeader || index === messages.length - 1}
               <div
                 class="flex justify-center text-xs text-gray-400 my-1"
-                class:animate-message-timestamp={isNewMessage && index === 0}
-                in:fade={{ duration: 200 }}
+                in:fade={{ duration: 300, delay: 100 }}
               >
                 {timeHeader || formatDate(message.timestamp)}
               </div>
@@ -365,6 +345,11 @@
       <input
         type="text"
         bind:value={sendMessageContent}
+        onkeydown={(e) => {
+          if (e.key === "Enter") {
+            sendButtonHandleClick();
+          }
+        }}
         class="ml-2 mr-2 bg-transparent focus:outline-none focus:ring-0 flex-1"
       />
 
@@ -428,29 +413,8 @@
     display: block;
   }
 
-  /* Only apply animations to new messages, not on conversation change */
-  .animate-message {
-    animation: message-appear 300ms ease-out forwards;
-  }
-  
-  .animate-message-timestamp {
-    animation: message-appear 300ms ease-out forwards;
-    animation-delay: 100ms;
-  }
-
-  @keyframes message-appear {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.95);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  /* Remove the cascading animations since we only want them for new messages */
-  .message-container div.flex:nth-child(1) {
-    animation-delay: 0ms;
+  /* Remove the old animations since we're using Svelte transitions now */
+  .message-wrapper {
+    will-change: height, transform, opacity;
   }
 </style>
