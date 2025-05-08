@@ -1,18 +1,20 @@
 /**
  * @param {string | number | Date} date
+ * @returns {string}
  */
 export function formatDate(date) {
     const input = new Date(date);
-    const now = new Date() ;
+    const now = new Date();
 
     const isSameDay = input.toDateString() === now.toDateString();
 
-    const startOfWeek = now.getDate() - now.getDay(); 
-    const endOfWeek = startOfWeek + 6; 
-    const isInThisWeek = input.getDate() >= startOfWeek && input.getDate() <= endOfWeek;
+    const inputIso = getISOWeekAndYear(input);
+    const nowIso = getISOWeekAndYear(now);
+
+    const isInThisWeek = inputIso.year === nowIso.year && inputIso.week === nowIso.week;
 
     if (isSameDay) {
-        return input.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return input.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     } else if (isInThisWeek) {
         return input.toLocaleDateString(undefined, { weekday: 'long' });
     } else {
@@ -20,10 +22,6 @@ export function formatDate(date) {
     }
 }
 
-/**
- * @param {string | number | Date} start
- * @param {string | number | Date} end
- */
 export function formatTimeRange(start, end) {
     if (end == null) {
         end = new Date();
@@ -49,18 +47,39 @@ export function formatTimeRange(start, end) {
         return `${startHour}:${startMinute < 10 ? '0' + startMinute : startMinute}`;
     }
 
-    const diffInDays = Math.floor((now.getTime() - startTime.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffInDays <= 7) {
+    const startWeekStart = getWeekStart(startTime).getTime();
+    const nowWeekStart = getWeekStart(now).getTime();
+
+    if (startWeekStart === nowWeekStart) {
         const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const weekDay = daysOfWeek[startTime.getDay()];
         return `${weekDay} ${startHour}:${startMinute < 10 ? '0' + startMinute : startMinute}`;
     }
-
 
     if (startYear === year) {
         return `${startMonth + 1}/${startDay} ${startHour}:${startMinute < 10 ? '0' + startMinute : startMinute}`;
     }
 
     return `${startYear}/${startMonth + 1}/${startDay} ${startHour}:${startMinute < 10 ? '0' + startMinute : startMinute}`;
+}
+
+const getWeekStart = (/** @type {string | number | Date} */ d) => {
+    const temp = new Date(d);
+    temp.setHours(0, 0, 0, 0);
+    temp.setDate(temp.getDate() - temp.getDay());
+    return temp;
+}
+
+
+const getISOWeekAndYear = (/** @type {string | number | Date} */ d) => {
+    const dt = new Date(d);
+    dt.setHours(0, 0, 0, 0);
+    dt.setDate(dt.getDate() + 3 - (dt.getDay() + 6) % 7);
+    const week1 = new Date(dt.getFullYear(), 0, 4);
+    return {
+        year: dt.getFullYear(),
+        week: 1 + Math.round(((dt.getTime() - week1.getTime()) / 86400000 -
+            3 + (week1.getDay() + 6) % 7) / 7)
+    };
 }
 

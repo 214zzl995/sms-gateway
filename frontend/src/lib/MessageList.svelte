@@ -11,6 +11,7 @@
   import { fade } from "svelte/transition";
   import { onDestroy } from "svelte";
   import { devices } from "../stores/devices";
+  import { quintOut } from "svelte/easing";
 
   let messages = $state([]);
   let showNewMessage = $state(false);
@@ -22,13 +23,20 @@
 
   let loading = $state(true);
 
+  let sendMessageContent = $state("");
   let sendMessageLoading = $state(false);
+  let sendMessageErrMessage = $state("");
 
   let page = $state(1);
   let pageSize = $state(9999999);
 
   let showLoading = $state(true);
   let loadingTimer = null;
+  
+  // Track conversation ID changes to control animations
+  let prevConversationId = $state(null);
+  let messageContainer = $state(null);
+  let isNewMessage = $state(false);
 
   const loadingDuration = 150;
 
@@ -50,17 +58,25 @@
   });
 
   $effect(() => {
+    // Track if conversation changes
+    const isConversationChange = prevConversationId !== null && 
+                                prevConversationId !== ($currentConversation?.id || null);
+    prevConversationId = $currentConversation?.id || null;
+    
     loading = true;
     if ($currentConversation && $currentConversation.id !== -1) {
       apiClient
         .getSmsPaginated(page, pageSize, $currentConversation.id)
         .then((res) => {
+          // Set messages without triggering animations when switching conversations
+          isNewMessage = false;
           messages = res.data.data;
           loading = false;
         });
     }
 
     if ($currentConversation && $currentConversation.id === -1) {
+      isNewMessage = false;
       messages = [];
       loading = false;
     }
@@ -92,7 +108,11 @@
   };
 
   const sendButtonHandleClick = () => {
-    showDeviceDialog = true;
+    if ($devices.length > 1) {
+      showDeviceDialog = true;
+    } else {
+      sendMessage($devices[0].name);
+    }
   };
 
   /**
@@ -131,8 +151,11 @@
     return formattedText;
   }
 
+  /**
+   * @param {HTMLDivElement} node
+   */
   function clickOutside(node) {
-    const handleClick = (event) => {
+    const handleClick = (/** @type {any} */ event) => {
       if (!node.contains(event.target)) {
         showDeviceDialog = false;
       }
@@ -142,6 +165,102 @@
     return {
       destroy() {
         document.removeEventListener("click", handleClick, true);
+      },
+    };
+  }
+
+  // Smooth scroll function to handle new message addition
+  function smoothScrollToTop() {
+    if (messageContainer) {
+      const currentScrollTop = messageContainer.scrollTop;
+      messageContainer.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  }
+
+  const sendMessage = (/** @type {String} */ device) => {
+
+    if (sendMessageContent.trim() === "") {
+      return;
+    }
+
+    sendMessageLoading = true;
+    
+    // Mark as new message (to enable animations)
+    isNewMessage = true;
+    
+    // Add new message
+    const newMessage = {
+      message: sendMessageContent,
+      send: true,
+      timestamp: new Date(),
+    };
+    
+    // Add message to array
+    messages = [newMessage, ...messages];
+    
+    // Clear input
+    sendMessageContent = "";
+    
+    // Start smooth scroll animation
+    setTimeout(() => {
+      smoothScrollToTop();
+    }, 50);
+    
+    // API call would go here
+    // apiClient
+    //   .sendSms(device, $currentConversation, concatInputText)
+    //   .then((res) => {
+    //     sendMessageLoading = false;
+    //   })
+    //   .catch((err) => {
+    //     sendMessageErrMessage = err.message;
+    //     sendMessageLoading = false;
+    //   });
+  };
+
+  /**
+   * Custom transition for receiving messages
+   * @param {HTMLElement} node - DOM node
+   * @param {Object} params - transition parameters
+   */
+  function receive(node, { duration = 300 }) {
+    // Only apply animation if it's a new message, not on conversation change
+    if (!isNewMessage) return {};
+    
+    return {
+      duration,
+      css: (/** @type {number} */ t) => {
+        const eased = quintOut(t);
+        return `
+        transform: scale(${eased});
+        transform-origin: ${node.classList.contains("justify-end") ? "right" : "left"} bottom;
+        opacity: ${eased};
+      `;
+      },
+    };
+  }
+
+  /**
+   * Custom transition for sending messages
+   * @param {HTMLElement} node - DOM node
+   * @param {Object} params - transition parameters
+   */
+  function send(node, { duration = 300 }) {
+    // Only apply animation if it's a new message, not on conversation change
+    if (!isNewMessage) return {};
+    
+    return {
+      duration,
+      css: (t) => {
+        const eased = quintOut(1 - t);
+        return `
+        transform: scale(${eased});
+        transform-origin: ${node.classList.contains("justify-end") ? "right" : "left"} bottom;
+        opacity: ${eased};
+      `;
       },
     };
   }
@@ -186,25 +305,33 @@
     {:else}
       <div
         class="h-full overflow-y-auto flex flex-col-reverse message-container z-9 absolute inset-0"
+        bind:this={messageContainer}
         transition:fade={{ duration: loadingDuration }}
       >
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
-          {#each messages as message, index}
+          {#each messages as message, index (message.timestamp)}
             <div
               class="flex mb-2"
               class:justify-end={message.send}
               class:justify-start={!message.send}
+              class:animate-message={isNewMessage && index === 0}
+              in:receive={{ duration: 3000 }}
+              out:send={{ duration: 3000 }}
             >
-              <div class="relative">
+              <div
+                class="relative max-w-[70%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%]"
+              >
                 <div
-                  class="relative px-4 py-2 text-sm max-w-[70%] rounded-lg max-w-4/6
-                  {message.send
+                  class="relative px-4 py-2 text-sm rounded-lg
+        {message.send
                     ? 'bg-blue-500 text-white before:bg-blue-500'
                     : 'bg-gray-200 dark:bg-zinc-800 before:bg-gray-200 before:dark:bg-zinc-800'}
-                  before:content-[''] before:absolute before:w-2 before:h-2 before:rotate-45 before:top-[10px]
-                  {message.send ? 'before:-right-1' : 'before:-left-1'}"
+        before:content-[''] before:absolute before:w-2 before:h-2 before:rotate-45 before:top-[10px]
+        {message.send ? 'before:-right-1' : 'before:-left-1'}"
                 >
-                  {@html formatMessageWithLinks(message.message)}
+                  <p class="whitespace-pre-wrap break-words overflow-hidden">
+                    {@html formatMessageWithLinks(message.message)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -215,7 +342,11 @@
                 : messages[index - 1]?.timestamp
             )}
             {#if timeHeader || index === messages.length - 1}
-              <div class="flex justify-center text-xs text-gray-400 my-1">
+              <div
+                class="flex justify-center text-xs text-gray-400 my-1"
+                class:animate-message-timestamp={isNewMessage && index === 0}
+                in:fade={{ duration: 200 }}
+              >
                 {timeHeader || formatDate(message.timestamp)}
               </div>
             {/if}
@@ -233,6 +364,7 @@
     >
       <input
         type="text"
+        bind:value={sendMessageContent}
         class="ml-2 mr-2 bg-transparent focus:outline-none focus:ring-0 flex-1"
       />
 
@@ -240,15 +372,20 @@
         <div
           transition:fade={{ duration: 150 }}
           use:clickOutside
-          class="absolute bottom-14 right-0 bg-white dark:bg-zinc-700 rounded-lg p-2 min-w-32 bg-zinc-100"
+          class="absolute bottom-14 right-0 bg-gray-100 dark:bg-zinc-800 backdrop-blur-md rounded-lg p-1 min-w-32 shadow-lg"
         >
           <ul class="list-none m-0 p-0">
             {#each $devices as device}
               <li>
                 <button
-                  class="py-1 px-2 bg-transparent hover:bg-gray-200 dark:hover:bg-zinc-600 rounded cursor-pointer w-full flex items-center gap-2 text-sm"
+                  class="py-2 px-3 bg-transparent hover:bg-gray-200 dark:hover:bg-zinc-600 rounded
+                         cursor-pointer w-full flex items-center gap-3 text-base"
+                  onclick={() => sendMessage(device.name)}
                 >
-                  <Icon icon="mage:memory-card-fill" class="text-gray-400 w-4 h-4" />
+                  <Icon
+                    icon="mage:memory-card-fill"
+                    class="text-blue-500 w-4 h-4"
+                  />
                   {device.name}
                 </button>
               </li>
@@ -289,5 +426,31 @@
   .message-container::-webkit-scrollbar-button:end:increment {
     height: 5rem;
     display: block;
+  }
+
+  /* Only apply animations to new messages, not on conversation change */
+  .animate-message {
+    animation: message-appear 300ms ease-out forwards;
+  }
+  
+  .animate-message-timestamp {
+    animation: message-appear 300ms ease-out forwards;
+    animation-delay: 100ms;
+  }
+
+  @keyframes message-appear {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Remove the cascading animations since we only want them for new messages */
+  .message-container div.flex:nth-child(1) {
+    animation-delay: 0ms;
   }
 </style>
