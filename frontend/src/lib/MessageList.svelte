@@ -171,9 +171,8 @@
   }
 
   // Smooth scroll function to handle new message addition
-  function smoothScrollToTop() {
+  function smoothScrollToBottom() {
     if (messageContainer) {
-      const currentScrollTop = messageContainer.scrollTop;
       messageContainer.scrollTo({
         top: 0,
         behavior: "smooth",
@@ -206,8 +205,8 @@
 
     // Start smooth scroll animation
     setTimeout(() => {
-      smoothScrollToTop();
-    }, 50);
+      smoothScrollToBottom();
+    }, 300);
 
     // API call would go here
     // apiClient
@@ -297,7 +296,7 @@
               class="flex mb-2 message-wrapper"
               class:justify-end={message.send}
               class:justify-start={!message.send}
-              in:slideDown={{ duration: 500 }}
+              in:slideDown={{ duration: 300 }}
             >
               <div
                 class="relative max-w-[70%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%]"
