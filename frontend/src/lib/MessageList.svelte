@@ -293,7 +293,7 @@
         transition:fade={{ duration: loadingDuration }}
       >
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
-          {#each messages as message, index (message.timestamp)}
+          {#each messages as message, index (message.id)}
             <div
               class="flex mb-2 message-wrapper"
               class:justify-end={message.send}
