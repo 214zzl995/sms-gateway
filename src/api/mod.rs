@@ -1,19 +1,28 @@
+use std::{convert::Infallible, sync::Arc};
+
 use axum::{
     extract::{Path, Query, State},
-    response::{IntoResponse, Response},
+    response::{sse::Event, IntoResponse, Response, Sse},
     routing::{get, post, put},
     Json, Router,
 };
+use futures_util::Stream;
 use log::debug;
 use log::error;
 use mime_guess::from_path;
 use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+pub use sse_manager::SseManager;
 
-use crate::{db::{Contact, Conversation, SMS}, modem::SmsType, Devices};
+use crate::{
+    db::{Contact, Conversation, SMS},
+    modem::SmsType,
+    Devices,
+};
 
 mod auth;
+mod sse_manager;
 
 use rust_embed::RustEmbed;
 
@@ -44,18 +53,9 @@ pub async fn run_api(
             "/refresh/{name}",
             get(refresh_sms).with_state(devices.clone()),
         )
-        .route(
-            "/contacts",
-            get(get_contacts),
-        )
-        .route(
-            "/contacts",
-            post(create_contact),
-        )
-        .route(
-            "/conversation",
-            get(get_conversation),
-        )
+        .route("/contacts", get(get_contacts))
+        .route("/contacts", post(create_contact))
+        .route("/conversation", get(get_conversation))
         .layer(axum::middleware::from_fn_with_state(
             (username.to_string(), password.to_string()),
             auth::basic_auth,
@@ -89,9 +89,11 @@ pub struct SmsQuery {
     contact_id: Option<i64>,
 }
 
-pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
+async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
     let result = match &query.contact_id {
-        Some(contact_id) => SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await,
+        Some(contact_id) => {
+            SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await
+        }
         None => SMS::paginate(query.page, query.per_page).await,
     };
 
@@ -116,7 +118,7 @@ pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
     .into_response()
 }
 
-pub async fn send_sms(
+async fn send_sms(
     State(devices): State<Devices>,
     Json(payload): Json<SmsPayload>,
 ) -> impl IntoResponse {
@@ -134,7 +136,7 @@ pub async fn send_sms(
     }
 }
 
-pub async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
+async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
     fn to_data_error<T, E: ToString>(result: Result<T, E>) -> (Option<T>, Option<String>) {
         match result {
             Ok(data) => (Some(data), None),
@@ -174,44 +176,38 @@ pub async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
     (StatusCode::OK, Json(details)).into_response()
 }
 
-
-pub async fn refresh_sms(
-    Path(name): Path<String>,
-    State(devices): State<Devices>,
-) -> Response {
+async fn refresh_sms(Path(name): Path<String>, State(devices): State<Devices>) -> Response {
     match devices.get(&name) {
-        Some(modem) => {
-            match modem.read_sms_sync_insert(SmsType::RecUnread).await{
-                Ok(_) => (StatusCode::OK).into_response(),
-                Err(err) => (StatusCode::BAD_GATEWAY,err.to_string()).into_response(),
-            }
-        }
+        Some(modem) => match modem.read_sms_sync_insert(SmsType::RecUnread).await {
+            Ok(_) => (StatusCode::OK).into_response(),
+            Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+        },
         None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
     }
 }
 
-pub async fn check() -> impl IntoResponse {
+async fn check() -> impl IntoResponse {
     StatusCode::NO_CONTENT
 }
 
-pub async fn get_contacts() -> Json<Vec<Contact>> {
+async fn get_contacts() -> Json<Vec<Contact>> {
     let contacts = Contact::query_all().await.unwrap();
     Json(contacts)
 }
 
-pub async fn get_conversation() -> Json<Vec<Conversation>> {
+async fn get_conversation() -> Json<Vec<Conversation>> {
     let conversation = Conversation::query_all().await.unwrap();
     Json(conversation)
 }
 
-async fn get_device_sms_count(Path(name): Path<String>) -> Response  {
+async fn get_device_sms_count(Path(name): Path<String>) -> Response {
     match SMS::count_by_device(&name).await {
         Ok(count) => (StatusCode::OK, Json(count)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-pub async fn create_contact(Json(payload): Json<String>) -> Response {
+async fn create_contact(Json(payload): Json<String>) -> Response {
     match Contact::insert(&payload).await {
         Ok(id) => (StatusCode::OK, Json(id)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -240,6 +236,24 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
             }
         }
     }
+}
+
+async fn sse_events(
+    State(sse_manager): State<Arc<SseManager>>,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    let rx_stream = BroadcastStream::new(sse_manager.subscribe())
+        .map(|msg| match msg {
+            Ok(sms) => Some(Ok(Event::default().json_data(&sms).unwrap())),
+            Err(_) => None,
+        })
+        .then(|x| async move { x });
+
+    let heartbeat_stream = tokio_stream::interval(Duration::from_secs(15))
+        .map(|_| Ok(Event::default().comment("keep-alive")));
+
+    let merged = futures_util::stream::select(rx_stream, heartbeat_stream);
+
+    Sse::new(merged)
 }
 
 #[derive(serde::Deserialize)]

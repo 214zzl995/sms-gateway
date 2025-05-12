@@ -39,7 +39,7 @@ pub struct Contact {
     pub name: String,
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize, Default)]
+#[derive(Debug, FromRow, Deserialize, Serialize, Default,Clone)]
 pub struct SMSPreview {
     pub device: String,
     pub message: String,
