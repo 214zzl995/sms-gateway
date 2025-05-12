@@ -3,7 +3,7 @@ use tokio::sync::broadcast;
 
 use crate::db::SMSPreview;
 
-
+#[derive(Clone)]
 pub struct SseManager {
     tx: broadcast::Sender<SMSPreview>,
 }

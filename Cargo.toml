@@ -23,8 +23,8 @@ rust-embed = "8.0"
 mime_guess = "2.0"
 hex = "*"
 regex = "*"
-futures_util = "0.3"
-tokio-stream = "0.1"
+futures-util = "0.3"
+tokio-stream = { version = "0.1", features = ["full"] }
 
 [target.x86_64-unknown-linux-musl.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"] }

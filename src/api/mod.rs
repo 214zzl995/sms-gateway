@@ -1,4 +1,4 @@
-use std::{convert::Infallible, sync::Arc};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 
 use axum::{
     extract::{Path, Query, State},
@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use futures_util::Stream;
+use futures_util::StreamExt;
 use log::debug;
 use log::error;
 use mime_guess::from_path;
@@ -36,11 +36,13 @@ pub async fn run_api(
     server_port: &u16,
     username: &str,
     password: &str,
+    sse_manager: Arc<SseManager>,
 ) -> anyhow::Result<()> {
     let api = Router::new()
         .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
         .route("/sms", post(send_sms).with_state(devices.clone()))
+        .route("/sms/sse", get(sse_events).with_state(sse_manager.clone()))
         .route(
             "/device",
             get(get_all_modem_details).with_state(devices.clone()),
@@ -241,15 +243,16 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
 async fn sse_events(
     State(sse_manager): State<Arc<SseManager>>,
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
-    let rx_stream = BroadcastStream::new(sse_manager.subscribe())
-        .map(|msg| match msg {
-            Ok(sms) => Some(Ok(Event::default().json_data(&sms).unwrap())),
-            Err(_) => None,
-        })
-        .then(|x| async move { x });
+    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe()).map(
+        |msg| match msg {
+            Ok(sms) => Ok(Event::default().json_data(&sms).unwrap()),
+            Err(_) => Ok(Event::default().comment("error")),
+        },
+    );
 
-    let heartbeat_stream = tokio_stream::interval(Duration::from_secs(15))
-        .map(|_| Ok(Event::default().comment("keep-alive")));
+    let heartbeat_stream =
+        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
+            .map(|_| Ok(Event::default().comment("keep-alive")));
 
     let merged = futures_util::stream::select(rx_stream, heartbeat_stream);
 

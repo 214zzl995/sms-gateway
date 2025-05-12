@@ -69,12 +69,15 @@ async fn main() {
         config.settings.read_sms_frequency,
     ));
 
+    let sse_manager = Arc::new(api::SseManager::new());
+
     match api::run_api(
         modems_arc,
         &config.settings.server_host,
         &config.settings.server_port,
         &config.settings.username.unwrap(),
         &config.settings.password.unwrap(),
+        sse_manager,
     )
     .await
     {
