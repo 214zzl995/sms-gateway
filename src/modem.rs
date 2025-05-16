@@ -3,9 +3,11 @@ use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serialport::SerialPort;
 use std::io::{self, Read, Write};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
+use crate::api::SseManager;
 use crate::db::{Contact, ModemSMS, SMS};
 use crate::decode::parse_pdu_sms;
 
@@ -315,13 +317,18 @@ impl Modem {
         }
     }
 
-    pub async fn read_sms_async_insert(&self, sms_type: SmsType) -> anyhow::Result<()> {
+    pub async fn read_sms_async_insert(&self, sms_type: SmsType, sse_manager: Arc<SseManager>) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
         if !sms_list.is_empty() {
             tokio::spawn(async move {
                 if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
                     log::error!("Insert SMS error: {}", err);
                 };
+
+                tokio::spawn(async move{
+                    let conversations = crate::db::Conversation::query_unread().await.unwrap();
+                    sse_manager.send(conversations);
+                })
             });
         }
         Ok(())

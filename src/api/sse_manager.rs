@@ -1,11 +1,10 @@
 use tokio::sync::broadcast;
 
-
-use crate::db::SMSPreview;
+use crate::db::Conversation;
 
 #[derive(Clone)]
 pub struct SseManager {
-    tx: broadcast::Sender<SMSPreview>,
+    tx: broadcast::Sender<Vec<Conversation>>,
 }
 
 impl SseManager {
@@ -14,11 +13,11 @@ impl SseManager {
         Self { tx }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<SMSPreview> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Vec<Conversation>> {
         self.tx.subscribe()
     }
 
-    pub fn send(&self, msg: SMSPreview) {
+    pub fn send(&self, msg: Vec<Conversation>) {
         let _ = self.tx.send(msg);
     }
 }

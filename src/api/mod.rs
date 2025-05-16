@@ -3,7 +3,7 @@ use std::{convert::Infallible, sync::Arc, time::Duration};
 use axum::{
     extract::{Path, Query, State},
     response::{sse::Event, IntoResponse, Response, Sse},
-    routing::{get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use futures_util::StreamExt;
@@ -42,7 +42,6 @@ pub async fn run_api(
         .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
         .route("/sms", post(send_sms).with_state(devices.clone()))
-        .route("/sms/unread/{contact_id}", get(get_sms_unread))
         .route("/sms/sse", get(sse_events).with_state(sse_manager.clone()))
         .route(
             "/device",
@@ -121,13 +120,6 @@ async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
     .into_response()
 }
 
-async fn get_sms_unread(Path(contact_id): Path<i64>) -> Response {
-    match SMS::query_unread(&contact_id).await {
-        Ok(sms_list) => (StatusCode::OK, Json(sms_list)).into_response(),
-        Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
-    }
-}
-
 async fn send_sms(
     State(devices): State<Devices>,
     Json(payload): Json<SmsPayload>,
@@ -186,7 +178,7 @@ async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
     (StatusCode::OK, Json(details)).into_response()
 }
 
-pub async fn refresh_sms(Path(name): Path<String>, State(devices): State<Devices>) -> Response {
+async fn refresh_sms(Path(name): Path<String>, State(devices): State<Devices>) -> Response {
     match devices.get(&name) {
         Some(modem) => match modem.read_sms_sync_insert(SmsType::RecUnread).await {
             Ok(_) => (StatusCode::OK).into_response(),
@@ -250,21 +242,33 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
 
 async fn sse_events(
     State(sse_manager): State<Arc<SseManager>>,
-) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
-    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe()).map(
-        |msg| match msg {
-            Ok(sms) => Ok(Event::default().json_data(&sms).unwrap()),
-            Err(_) => Ok(Event::default().comment("error")),
-        },
-    );
-
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {   
+    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe())
+        .map(|msg| match msg {
+            Ok(sms) => {
+                let timestamp = chrono::Utc::now().timestamp_millis();
+                Ok(Event::default()
+                    .id(timestamp.to_string())
+                    .json_data(&sms)
+                    .unwrap())
+            },
+            Err(_) => {
+                Ok(Event::default()
+                    .event("error")
+                    .comment("Failed to receive broadcast message"))
+            },
+        });
+    
     let heartbeat_stream =
         tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
             .map(|_| Ok(Event::default().comment("keep-alive")));
-
+    
     let merged = futures_util::stream::select(rx_stream, heartbeat_stream);
-
-    Sse::new(merged)
+    Sse::new(merged).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive")
+    )
 }
 
 #[derive(serde::Deserialize)]

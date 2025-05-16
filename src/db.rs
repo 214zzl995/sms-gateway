@@ -33,13 +33,13 @@ pub struct ModemSMS {
     pub send: bool,
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize, Default)]
+#[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
 pub struct Contact {
     pub id: i64,
     pub name: String,
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize, Default,Clone)]
+#[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
 pub struct SMSPreview {
     pub device: String,
     pub message: String,
@@ -47,7 +47,7 @@ pub struct SMSPreview {
     pub read: bool,
 }
 
-#[derive(Debug, FromRow, Deserialize, Serialize, Default)]
+#[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
 pub struct Conversation {
     #[sqlx(flatten)]
     pub contact: Contact,
@@ -131,6 +131,8 @@ impl SMS {
         let offset = (page - 1) * per_page;
         let pool = get_pool()?;
 
+        let mut tx = pool.begin().await?;
+
         let sms_list = sqlx::query_as(
             r#"
             SELECT id, contact_id, timestamp, message, device, send, read
@@ -143,8 +145,23 @@ impl SMS {
         .bind(contact_id)
         .bind(per_page as i32)
         .bind(offset as i32)
-        .fetch_all(pool)
+        .fetch_all(&mut *tx)
         .await?;
+
+        if page == 1 {
+            sqlx::query(
+                r#"
+                UPDATE sms
+                SET read = true
+                WHERE contact_id = ? AND read = false
+                "#,
+            )
+            .bind(contact_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
 
         let total = SMS::count_by_contact_id(contact_id).await?;
 
@@ -169,45 +186,24 @@ impl SMS {
 
         Ok(sms_id)
     }
-
-    pub async fn query_unread(contact_id: &i64) -> Result<Vec<Self>> {
-        let pool = get_pool()?;
-        let sms_list = sqlx::query_as(
-            r#"
-            SELECT id, contact_id, timestamp, message, device, send, read
-            FROM sms
-            WHERE read = false AND contact_id = ?
-            ORDER BY timestamp DESC
-            "#,
-        )
-        .bind(contact_id)
-        .fetch_all(pool)
-        .await?;
-
-        Ok(sms_list)
-    }
 }
 
 impl Contact {
     pub async fn query_all() -> Result<Vec<Self>> {
         let pool = get_pool()?;
-        let contacts = sqlx::query_as(
-            "SELECT id, name FROM contacts"
-        )
-        .fetch_all(pool)
-        .await?;
+        let contacts = sqlx::query_as("SELECT id, name FROM contacts")
+            .fetch_all(pool)
+            .await?;
 
         Ok(contacts)
     }
 
     pub async fn query_by_id(id: &i64) -> Result<Self> {
         let pool = get_pool()?;
-        let contact = sqlx::query_as(
-            "SELECT id, name FROM contacts WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+        let contact = sqlx::query_as("SELECT id, name FROM contacts WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
 
         Ok(contact)
     }
@@ -233,6 +229,18 @@ impl Conversation {
 
         let conversations = sqlx::query_as(
               "SELECT id, name, timestamp, message, read, device FROM v_contacts ORDER BY timestamp DESC"
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(conversations)
+    }
+
+    pub async fn query_unread() -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+
+        let conversations = sqlx::query_as(
+              "SELECT id, name, timestamp, message, read, device FROM v_contacts where read = false ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;

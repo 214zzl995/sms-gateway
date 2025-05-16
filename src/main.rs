@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use api::SseManager;
 use db::db_init;
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
@@ -63,13 +64,13 @@ async fn main() {
         modems.insert(name.clone(), modem);
     }
     let modems_arc = Arc::new(modems);
+    let sse_manager = Arc::new(api::SseManager::new());
 
     tokio::spawn(read_sms_worker(
         modems_arc.clone(),
         config.settings.read_sms_frequency,
+        sse_manager.clone(),
     ));
-
-    let sse_manager = Arc::new(api::SseManager::new());
 
     match api::run_api(
         modems_arc,
@@ -77,7 +78,7 @@ async fn main() {
         &config.settings.server_port,
         &config.settings.username.unwrap(),
         &config.settings.password.unwrap(),
-        sse_manager,
+        sse_manager.clone(),
     )
     .await
     {
@@ -86,12 +87,18 @@ async fn main() {
     };
 }
 
-async fn read_sms_worker(devices: Devices, read_sms_frequency: u64) {
-    let modem_keys = devices.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
+async fn read_sms_worker(devices: Devices, read_sms_frequency: u64, sse_manager: Arc<SseManager>) {
+    let modem_keys = devices
+        .iter()
+        .map(|x: (&String, &modem::Modem)| x.0.clone())
+        .collect::<Vec<_>>();
     loop {
         for key in &modem_keys {
             let modem = devices.get(key).unwrap();
-            if let Err(err) = modem.read_sms_async_insert(SmsType::RecUnread).await {
+            if let Err(err) = modem
+                .read_sms_async_insert(SmsType::RecUnread, sse_manager.clone())
+                .await
+            {
                 log::error!("Read SMS error: {}", err);
                 continue;
             }
