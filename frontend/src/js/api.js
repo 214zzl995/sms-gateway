@@ -72,6 +72,10 @@ class ApiClient {
     async getConversation(){
         return FetchApi.get('/api/conversation')
     }
+
+    async markConversationAsReadAndGetLatest(contactId) {
+        return FetchApi.post(`/api/conversations/${contactId}/unread`);
+    }
 }
 
 // Export as a singleton

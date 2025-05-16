@@ -10,7 +10,7 @@
     markConversationAsRead,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { devices } from "../stores/devices";
   import { quintOut } from "svelte/easing";
 
@@ -249,6 +249,37 @@
       },
     };
   }
+
+  // Add auto-update functionality
+  function handleMessageUpdate(event) {
+    const { messages: newMessages, silentUpdate } = event.detail;
+
+    if (!newMessages || newMessages.length === 0) return;
+
+    // Disable animation effects
+    if (silentUpdate) {
+      isNewMessage = false;
+    }
+
+    // Remove duplicates to avoid repeated messages
+    const existingIds = new Set(messages.map((msg) => msg.id));
+    const uniqueNewMessages = newMessages.filter(
+      (msg) => !existingIds.has(msg.id)
+    );
+
+    if (uniqueNewMessages.length > 0) {
+      messages = [...uniqueNewMessages, ...messages];
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener("update-messages", handleMessageUpdate);
+  });
+
+  onDestroy(() => {
+    if (loadingTimer) clearTimeout(loadingTimer);
+    window.removeEventListener("update-messages", handleMessageUpdate);
+  });
 
   onDestroy(() => {
     if (loadingTimer) clearTimeout(loadingTimer);

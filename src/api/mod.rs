@@ -58,6 +58,7 @@ pub async fn run_api(
         .route("/contacts", get(get_contacts))
         .route("/contacts", post(create_contact))
         .route("/conversation", get(get_conversation))
+        .route("/conversations/{id}/unread", post(get_conversation_unread))
         .layer(axum::middleware::from_fn_with_state(
             (username.to_string(), password.to_string()),
             auth::basic_auth,
@@ -268,6 +269,13 @@ async fn sse_events(
                     .id(chrono::Utc::now().timestamp_millis().to_string()),
             ),
     )
+}
+
+async fn get_conversation_unread(Path(id): Path<i64>) -> Response {
+    match SMS::query_unread_by_contact_id(&id).await {
+        Ok(messages) =>  (StatusCode::OK, Json(messages)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
 }
 
 #[derive(serde::Deserialize)]
