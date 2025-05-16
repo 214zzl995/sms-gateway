@@ -1,6 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { apiClient } from '../js/api';
 import { getStorageValue, updateStorageValue } from '../js/storage';
+import { EventSourcePolyfill } from 'event-source-polyfill';
 
 export const conversations = writable([]);
 export const currentConversation = writable(null);
@@ -9,17 +10,40 @@ export const sseConnected = writable(false);
 
 let eventSource = null;
 let reconnectTimeout = null;
-const RECONNECT_DELAY = 5000; 
+const RECONNECT_DELAY = 5000; // 5 seconds
+
+const getAuthHeader = () => {
+    const auth = sessionStorage.getItem("auth");
+    if (auth) {
+        const { token } = JSON.parse(auth);
+        return { 'Authorization': `Basic ${token}` };
+    }
+    return {};
+};
 
 const connectSSE = () => {
     if (eventSource) {
         eventSource.close();
     }
 
-    eventSource = new EventSource('/api/sms/sse');
-    
+    const authHeader = getAuthHeader();
+    if (!authHeader.Authorization) {
+        console.error('SSE Error: Authorization token not found.');
+        sseConnected.set(false);
+        return;
+    }
+
+    const eventSourceInitDict = {
+        headers: {
+            ...authHeader
+        },
+        heartbeatTimeout: 45000 // ms, to prevent "No activity within 45000 milliseconds"
+    };
+
+    eventSource = new EventSourcePolyfill('/api/sms/sse', eventSourceInitDict);
+
     eventSource.onopen = () => {
-        console.log('SSE连接已建立');
+        console.log('SSE connection established.');
         sseConnected.set(true);
         if (reconnectTimeout) {
             clearTimeout(reconnectTimeout);
@@ -28,27 +52,44 @@ const connectSSE = () => {
     };
 
     eventSource.onmessage = (event) => {
-       
+        if (event.data === 'keep-alive') {
+            console.log('SSE keep-alive received.');
+            return;
+        }
+        try {
+            const messageData = JSON.parse(event.data);
+            if (messageData.type === 'new_message') {
+                console.log('SSE new_message received:', messageData);
+                initConversation();
+            }
+        } catch (error) {
+            console.error('SSE error parsing message data:', error, 'Raw data:', event.data);
+        }
     };
 
     eventSource.onerror = (error) => {
-        console.error('SSE连接错误:', error);
+        console.error('SSE connection error:', error);
         sseConnected.set(false);
-        eventSource.close();
+        if (eventSource) {
+            eventSource.close();
+        }
         
         if (!reconnectTimeout) {
+            console.log(`SSE: Attempting to reconnect in ${RECONNECT_DELAY / 1000} seconds...`);
             reconnectTimeout = setTimeout(() => {
-                console.log('尝试重新连接SSE...');
                 connectSSE();
             }, RECONNECT_DELAY);
         }
     };
-};
 
-connectSSE();
+    eventSource.addEventListener('keep-alive', (event) => {
+        console.log('SSE keep-alive event received');
+    }, false);
+};
 
 export const initConversation = () => {
     conversationLoading.set(true);
+    connectSSE();
 
     apiClient.getConversation().then((res) => {
         getStorageValue("currentConversation").then((storageValue) => {
