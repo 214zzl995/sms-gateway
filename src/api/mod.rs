@@ -242,32 +242,26 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
 
 async fn sse_events(
     State(sse_manager): State<Arc<SseManager>>,
-) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {   
-    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe())
-        .map(|msg| match msg {
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe()).map(
+        |msg| match msg {
             Ok(sms) => {
                 let timestamp = chrono::Utc::now().timestamp_millis();
                 Ok(Event::default()
                     .id(timestamp.to_string())
                     .json_data(&sms)
                     .unwrap())
-            },
-            Err(_) => {
-                Ok(Event::default()
-                    .event("error")
-                    .comment("Failed to receive broadcast message"))
-            },
-        });
-    
-    let heartbeat_stream =
-        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
-            .map(|_| Ok(Event::default().comment("keep-alive")));
-    
-    let merged = futures_util::stream::select(rx_stream, heartbeat_stream);
-    Sse::new(merged).keep_alive(
+            }
+            Err(_) => Ok(Event::default()
+                .event("error")
+                .comment("Failed to receive broadcast message")),
+        },
+    );
+
+    Sse::new(rx_stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(15))
-            .text("keep-alive")
+            .text("keep-alive"),
     )
 }
 
