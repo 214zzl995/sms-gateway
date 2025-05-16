@@ -169,6 +169,23 @@ impl SMS {
 
         Ok(sms_id)
     }
+
+    pub async fn query_unread(contact_id: &i64) -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let sms_list = sqlx::query_as(
+            r#"
+            SELECT id, contact_id, timestamp, message, device, send, read
+            FROM sms
+            WHERE read = false AND contact_id = ?
+            ORDER BY timestamp DESC
+            "#,
+        )
+        .bind(contact_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(sms_list)
+    }
 }
 
 impl Contact {

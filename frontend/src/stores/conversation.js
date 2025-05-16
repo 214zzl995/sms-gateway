@@ -5,6 +5,47 @@ import { getStorageValue, updateStorageValue } from '../js/storage';
 export const conversations = writable([]);
 export const currentConversation = writable(null);
 export const conversationLoading = writable(false);
+export const sseConnected = writable(false);
+
+let eventSource = null;
+let reconnectTimeout = null;
+const RECONNECT_DELAY = 5000; 
+
+const connectSSE = () => {
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    eventSource = new EventSource('/api/sms/sse');
+    
+    eventSource.onopen = () => {
+        console.log('SSE连接已建立');
+        sseConnected.set(true);
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+        }
+    };
+
+    eventSource.onmessage = (event) => {
+       
+    };
+
+    eventSource.onerror = (error) => {
+        console.error('SSE连接错误:', error);
+        sseConnected.set(false);
+        eventSource.close();
+        
+        if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+                console.log('尝试重新连接SSE...');
+                connectSSE();
+            }, RECONNECT_DELAY);
+        }
+    };
+};
+
+connectSSE();
 
 export const initConversation = () => {
     conversationLoading.set(true);
@@ -36,7 +77,7 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
         return;
     }
     updateStorageValue("currentConversation", contact);
-    
+
     if (contact.id === -1 && !get(conversations).find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === -1)) {
         console.log("add new conversation");
         conversations.update((conversations) => {
@@ -61,11 +102,11 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
 
 export const newMessageConcatChange = (/** @type {string} */ conactName) => {
     if (conactName === "") {
-      conactName = "新信息";
+        conactName = "新信息";
     }
 
     conversations.update((conversations) => {
-        return [ {
+        return [{
             contact: {
                 id: -1,
                 name: conactName,
@@ -96,7 +137,7 @@ export const scrollToConversation = (/** @type {number} */ id) => {
                     const containerRect = scrollContainer.getBoundingClientRect();
                     const elementRect = conversationItem.getBoundingClientRect();
                     const relativeTop = elementRect.top - containerRect.top + scrollContainer.scrollTop;
-                    
+
                     scrollContainer.scrollTo({
                         top: relativeTop,
                         behavior: 'smooth'

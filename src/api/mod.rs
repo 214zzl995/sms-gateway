@@ -11,7 +11,11 @@ use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{db::{Contact, Conversation, SMS}, modem::SmsType, Devices};
+use crate::{
+    db::{Contact, Conversation, SMS},
+    modem::SmsType,
+    Devices,
+};
 
 mod auth;
 
@@ -32,6 +36,7 @@ pub async fn run_api(
         .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
         .route("/sms", post(send_sms).with_state(devices.clone()))
+        .route("/sms/unread/{contact_id}", get(get_sms_unread))
         .route(
             "/device",
             get(get_all_modem_details).with_state(devices.clone()),
@@ -44,18 +49,9 @@ pub async fn run_api(
             "/refresh/{name}",
             get(refresh_sms).with_state(devices.clone()),
         )
-        .route(
-            "/contacts",
-            get(get_contacts),
-        )
-        .route(
-            "/contacts",
-            post(create_contact),
-        )
-        .route(
-            "/conversation",
-            get(get_conversation),
-        )
+        .route("/contacts", get(get_contacts))
+        .route("/contacts", post(create_contact))
+        .route("/conversation", get(get_conversation))
         .layer(axum::middleware::from_fn_with_state(
             (username.to_string(), password.to_string()),
             auth::basic_auth,
@@ -91,7 +87,9 @@ pub struct SmsQuery {
 
 pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
     let result = match &query.contact_id {
-        Some(contact_id) => SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await,
+        Some(contact_id) => {
+            SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await
+        }
         None => SMS::paginate(query.page, query.per_page).await,
     };
 
@@ -114,6 +112,13 @@ pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
         per_page: query.per_page,
     })
     .into_response()
+}
+
+async fn get_sms_unread(Path(contact_id): Path<i64>) -> Response {
+    match SMS::query_unread(&contact_id).await {
+        Ok(sms_list) => (StatusCode::OK, Json(sms_list)).into_response(),
+        Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+    }
 }
 
 pub async fn send_sms(
@@ -174,18 +179,12 @@ pub async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
     (StatusCode::OK, Json(details)).into_response()
 }
 
-
-pub async fn refresh_sms(
-    Path(name): Path<String>,
-    State(devices): State<Devices>,
-) -> Response {
+pub async fn refresh_sms(Path(name): Path<String>, State(devices): State<Devices>) -> Response {
     match devices.get(&name) {
-        Some(modem) => {
-            match modem.read_sms_sync_insert(SmsType::RecUnread).await{
-                Ok(_) => (StatusCode::OK).into_response(),
-                Err(err) => (StatusCode::BAD_GATEWAY,err.to_string()).into_response(),
-            }
-        }
+        Some(modem) => match modem.read_sms_sync_insert(SmsType::RecUnread).await {
+            Ok(_) => (StatusCode::OK).into_response(),
+            Err(err) => (StatusCode::BAD_GATEWAY, err.to_string()).into_response(),
+        },
         None => (StatusCode::NOT_FOUND, "Modem not found").into_response(),
     }
 }
@@ -204,7 +203,7 @@ pub async fn get_conversation() -> Json<Vec<Conversation>> {
     Json(conversation)
 }
 
-async fn get_device_sms_count(Path(name): Path<String>) -> Response  {
+async fn get_device_sms_count(Path(name): Path<String>) -> Response {
     match SMS::count_by_device(&name).await {
         Ok(count) => (StatusCode::OK, Json(count)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
