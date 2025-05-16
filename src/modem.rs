@@ -286,7 +286,6 @@ impl Modem {
 
         // Final response validation
         if ok_received && cmgs_received {
-
             let sms = SMS {
                 id: 0,
                 contact_id: contact.id,
@@ -317,18 +316,28 @@ impl Modem {
         }
     }
 
-    pub async fn read_sms_async_insert(&self, sms_type: SmsType, sse_manager: Arc<SseManager>) -> anyhow::Result<()> {
+    pub async fn read_sms_async_insert(
+        &self,
+        sms_type: SmsType,
+        sse_manager: Arc<SseManager>,
+    ) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
         if !sms_list.is_empty() {
             tokio::spawn(async move {
-                if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
-                    log::error!("Insert SMS error: {}", err);
-                };
-
-                tokio::spawn(async move{
-                    let conversations = crate::db::Conversation::query_unread().await.unwrap();
-                    sse_manager.send(conversations);
-                })
+                match ModemSMS::bulk_insert(&sms_list).await {
+                    Ok(contact_ids) => {
+                        tokio::spawn(async move {
+                            let conversations =
+                                crate::db::Conversation::query_by_contact_ids(&contact_ids)
+                                    .await
+                                    .unwrap();
+                            sse_manager.send(conversations);
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("Insert SMS error: {}", err);
+                    }
+                }
             });
         }
         Ok(())

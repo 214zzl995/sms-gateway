@@ -236,7 +236,7 @@ impl Conversation {
         Ok(conversations)
     }
 
-    pub async fn query_unread() -> Result<Vec<Self>> {
+    pub async fn _query_unread() -> Result<Vec<Self>> {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
@@ -244,6 +244,32 @@ impl Conversation {
         )
         .fetch_all(pool)
         .await?;
+
+        Ok(conversations)
+    }
+
+    pub async fn query_by_contact_ids(contact_ids: &[i64]) -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+
+        if contact_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 构建IN查询的参数列表
+        let mut query_builder = QueryBuilder::new(
+            "SELECT id, name, timestamp, message, read, device FROM v_contacts WHERE id IN ("
+        );
+        
+        let mut separated = query_builder.separated(", ");
+        for &id in contact_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY timestamp DESC");
+
+        let conversations = query_builder
+            .build_query_as()
+            .fetch_all(pool)
+            .await?;
 
         Ok(conversations)
     }
@@ -312,7 +338,7 @@ impl ModemSMS {
         Ok(sms_id)
     }
 
-    pub async fn bulk_insert(records: &[Self]) -> Result<()> {
+    pub async fn bulk_insert(records: &[Self]) -> Result<Vec<i64>> {
         let pool = get_pool()?;
 
         let mut transaction = pool.begin().await?;
@@ -375,7 +401,10 @@ impl ModemSMS {
 
         transaction.commit().await?;
 
-        Ok(())
+        Ok(contact_map
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect())
     }
 }
 
