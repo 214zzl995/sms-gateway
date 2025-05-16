@@ -322,12 +322,12 @@ impl ModemSMS {
             contact_names.insert(record.contact.clone());
         }
 
-        let contact_ids = contact_names
+        let contact_names = contact_names
             .iter()
             .map(|contact| contact.clone())
             .collect::<Vec<String>>();
 
-        for chunk in contact_ids.chunks(MAX_BATCH_SIZE) {
+        for chunk in contact_names.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new("INSERT OR IGNORE INTO contacts (name) ");
 
             query_builder.push_values(chunk, |mut b, contact| {
