@@ -204,3 +204,26 @@ export const conactAddFinish = (/** @type {string} */ name) => {
         });
     }
 }
+
+export const markConversationAsRead = (/** @type {number} */ contactId) => {
+    if (contactId === undefined || contactId === null || contactId === -1) {
+        return;
+    }
+
+    conversations.update(currentConversations => {
+        return currentConversations.map(conv => {
+            if (conv.contact.id === contactId && !conv.sms_preview.read) {
+                return {
+                    ...conv,
+                    sms_preview: {
+                        ...conv.sms_preview,
+                        read: true
+                    }
+                };
+            }
+            return conv;
+        });
+    });
+};
+
+

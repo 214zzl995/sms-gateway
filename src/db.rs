@@ -273,6 +273,31 @@ impl Conversation {
 
         Ok(conversations)
     }
+
+    pub async fn _mark_as_read(&self) -> Result<()> {
+        let pool = get_pool()?;
+        
+        // 更新最近一条消息的已读状态
+        sqlx::query(
+            r#"
+            UPDATE sms 
+            SET read = true 
+            WHERE contact_id = ? 
+            AND timestamp = (
+                SELECT timestamp 
+                FROM sms 
+                WHERE contact_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            )"#
+        )
+        .bind(self.contact.id)
+        .bind(self.contact.id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 impl ModemSMS {

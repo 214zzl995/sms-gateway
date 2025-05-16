@@ -7,6 +7,7 @@
     conversationLoading,
     newMessageConcatChange,
     conactAddFinish,
+    markConversationAsRead,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
   import { onDestroy } from "svelte";
@@ -65,14 +66,17 @@
     prevConversationId = $currentConversation?.id || null;
 
     loading = true;
-    if ($currentConversation && $currentConversation.id !== -1) {
+    if ($currentConversation && prevConversationId !== -1) {
       apiClient
-        .getSmsPaginated(page, pageSize, $currentConversation.id)
+        .getSmsPaginated(page, pageSize, prevConversationId)
         .then((res) => {
           // Set messages without triggering animations when switching conversations
           isNewMessage = false;
           messages = res.data.data;
           loading = false;
+          if (page === 1) {
+            markConversationAsRead(prevConversationId);
+          }
         });
     }
 
@@ -144,7 +148,7 @@
 
         formattedText = formattedText.replace(
           url,
-          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`,
+          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`
         );
       });
     }
@@ -321,7 +325,7 @@
               message.timestamp,
               index === messages.length - 1
                 ? null
-                : messages[index - 1]?.timestamp,
+                : messages[index - 1]?.timestamp
             )}
             {#if timeHeader || index === messages.length - 1}
               <div
