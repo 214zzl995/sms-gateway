@@ -43,27 +43,10 @@ const connectSSE = () => {
     eventSource = new EventSourcePolyfill('/api/sms/sse', eventSourceInitDict);
 
     eventSource.onopen = () => {
-        console.log('SSE connection established.');
         sseConnected.set(true);
         if (reconnectTimeout) {
             clearTimeout(reconnectTimeout);
             reconnectTimeout = null;
-        }
-    };
-
-    eventSource.onmessage = (event) => {
-        if (event.data === 'keep-alive') {
-            console.log('SSE keep-alive received.');
-            return;
-        }
-        try {
-            const messageData = JSON.parse(event.data);
-            if (messageData.type === 'new_message') {
-                console.log('SSE new_message received:', messageData);
-                initConversation();
-            }
-        } catch (error) {
-            console.error('SSE error parsing message data:', error, 'Raw data:', event.data);
         }
     };
 
@@ -73,7 +56,7 @@ const connectSSE = () => {
         if (eventSource) {
             eventSource.close();
         }
-        
+
         if (!reconnectTimeout) {
             console.log(`SSE: Attempting to reconnect in ${RECONNECT_DELAY / 1000} seconds...`);
             reconnectTimeout = setTimeout(() => {
@@ -82,9 +65,18 @@ const connectSSE = () => {
         }
     };
 
-    eventSource.addEventListener('keep-alive', (event) => {
-        console.log('SSE keep-alive event received');
-    }, false);
+    eventSource.addEventListener('conversations', (event) => {
+        let data = event.data;
+
+        conversations.update((conversations) => {
+            const parsedData = JSON.parse(data);
+            
+
+
+            return parsedData;
+        });
+    });
+
 };
 
 export const initConversation = () => {

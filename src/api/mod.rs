@@ -245,11 +245,12 @@ async fn sse_events(
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
     let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe()).map(
         |msg| match msg {
-            Ok(sms) => {
+            Ok(cnversations) => {
                 let timestamp = chrono::Utc::now().timestamp_millis();
                 Ok(Event::default()
                     .id(timestamp.to_string())
-                    .json_data(&sms)
+                    .event("conversations")
+                    .json_data(&cnversations)
                     .unwrap())
             }
             Err(_) => Ok(Event::default()

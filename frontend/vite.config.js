@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: env.VITE_API_PROXY,
           changeOrigin: true,
+          secure: false,
+          ws: false,
         },
       },
     },
