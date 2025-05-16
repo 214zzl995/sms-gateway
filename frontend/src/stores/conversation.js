@@ -68,12 +68,25 @@ const connectSSE = () => {
     eventSource.addEventListener('conversations', (event) => {
         let data = event.data;
 
-        conversations.update((conversations) => {
-            const parsedData = JSON.parse(data);
-            
+        conversations.update((currentConversations) => {
+            const newConversations = JSON.parse(data);
 
+            const conversationMap = new Map();
+            currentConversations.forEach(conv => {
+                conversationMap.set(conv.contact.id, conv);
+            });
 
-            return parsedData;
+            newConversations.forEach(newConv => {
+                conversationMap.delete(newConv.contact.id);
+            });
+
+            newConversations.sort((/** @type {{ sms_preview: { timestamp: string | number | Date; }; }} */ a, /** @type {{ sms_preview: { timestamp: string | number | Date; }; }} */ b) => {
+                const dateA = new Date(a.sms_preview.timestamp);
+                const dateB = new Date(b.sms_preview.timestamp);
+                return dateB.getTime() - dateA.getTime();
+            });
+
+            return [...newConversations, ...Array.from(conversationMap.values())];
         });
     });
 
