@@ -246,7 +246,6 @@
     };
   }
 
-
   onDestroy(() => {
     if (loadingTimer) clearTimeout(loadingTimer);
   });
@@ -254,9 +253,12 @@
 
 <div class="flex flex-col h-full relative">
   <header
-    class="bg-gray-100/70 dark:bg-zinc-900/70 backdrop-blur-md p-2 h-12 flex items-center text-gray-400
+    class="bg-gray-100/70 dark:bg-zinc-900/70 backdrop-blur-md p-2 h-12 flex items-center
      text-sm transition-colors duration-300 absolute top-0 left-0 right-0 z-10"
     class:text-gray-600={showNewMessage}
+    class:text-gray-400={!showNewMessage}
+    class:dark:text-gray-200={showNewMessage}
+    class:dark:text-gray-400={!showNewMessage}
   >
     收件人:
     {#if !$conversationLoading}
@@ -291,7 +293,7 @@
         transition:fade={{ duration: loadingDuration }}
       >
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
-          {#each messages as message, index (message.timestamp)}
+          {#each messages as message, index (message.id)}
             <div
               class="flex mb-2 message-wrapper"
               class:justify-end={message.send}

@@ -1,15 +1,19 @@
+use std::{convert::Infallible, sync::Arc, time::Duration};
+
 use axum::{
     extract::{Path, Query, State},
-    response::{IntoResponse, Response},
+    response::{sse::Event, IntoResponse, Response, Sse},
     routing::{get, post, put},
     Json, Router,
 };
+use futures_util::StreamExt;
 use log::debug;
 use log::error;
 use mime_guess::from_path;
 use reqwest::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+pub use sse_manager::SseManager;
 
 use crate::{
     db::{Contact, Conversation, SMS},
@@ -18,6 +22,7 @@ use crate::{
 };
 
 mod auth;
+mod sse_manager;
 
 use rust_embed::RustEmbed;
 
@@ -31,12 +36,14 @@ pub async fn run_api(
     server_port: &u16,
     username: &str,
     password: &str,
+    sse_manager: Arc<SseManager>,
 ) -> anyhow::Result<()> {
     let api = Router::new()
         .route("/check", get(check))
         .route("/sms", get(get_sms_paginated))
         .route("/sms", post(send_sms).with_state(devices.clone()))
         .route("/sms/unread/{contact_id}", get(get_sms_unread))
+        .route("/sms/sse", get(sse_events).with_state(sse_manager.clone()))
         .route(
             "/device",
             get(get_all_modem_details).with_state(devices.clone()),
@@ -85,7 +92,7 @@ pub struct SmsQuery {
     contact_id: Option<i64>,
 }
 
-pub async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
+async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
     let result = match &query.contact_id {
         Some(contact_id) => {
             SMS::paginate_by_contact_id(contact_id, query.page, query.per_page).await
@@ -121,7 +128,7 @@ async fn get_sms_unread(Path(contact_id): Path<i64>) -> Response {
     }
 }
 
-pub async fn send_sms(
+async fn send_sms(
     State(devices): State<Devices>,
     Json(payload): Json<SmsPayload>,
 ) -> impl IntoResponse {
@@ -139,7 +146,7 @@ pub async fn send_sms(
     }
 }
 
-pub async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
+async fn get_all_modem_details(State(devices): State<Devices>) -> Response {
     fn to_data_error<T, E: ToString>(result: Result<T, E>) -> (Option<T>, Option<String>) {
         match result {
             Ok(data) => (Some(data), None),
@@ -189,16 +196,16 @@ pub async fn refresh_sms(Path(name): Path<String>, State(devices): State<Devices
     }
 }
 
-pub async fn check() -> impl IntoResponse {
+async fn check() -> impl IntoResponse {
     StatusCode::NO_CONTENT
 }
 
-pub async fn get_contacts() -> Json<Vec<Contact>> {
+async fn get_contacts() -> Json<Vec<Contact>> {
     let contacts = Contact::query_all().await.unwrap();
     Json(contacts)
 }
 
-pub async fn get_conversation() -> Json<Vec<Conversation>> {
+async fn get_conversation() -> Json<Vec<Conversation>> {
     let conversation = Conversation::query_all().await.unwrap();
     Json(conversation)
 }
@@ -210,7 +217,7 @@ async fn get_device_sms_count(Path(name): Path<String>) -> Response {
     }
 }
 
-pub async fn create_contact(Json(payload): Json<String>) -> Response {
+async fn create_contact(Json(payload): Json<String>) -> Response {
     match Contact::insert(&payload).await {
         Ok(id) => (StatusCode::OK, Json(id)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -239,6 +246,25 @@ async fn static_handler(uri: axum::http::Uri) -> impl IntoResponse {
             }
         }
     }
+}
+
+async fn sse_events(
+    State(sse_manager): State<Arc<SseManager>>,
+) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
+    let rx_stream = tokio_stream::wrappers::BroadcastStream::new(sse_manager.subscribe()).map(
+        |msg| match msg {
+            Ok(sms) => Ok(Event::default().json_data(&sms).unwrap()),
+            Err(_) => Ok(Event::default().comment("error")),
+        },
+    );
+
+    let heartbeat_stream =
+        tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(15)))
+            .map(|_| Ok(Event::default().comment("keep-alive")));
+
+    let merged = futures_util::stream::select(rx_stream, heartbeat_stream);
+
+    Sse::new(merged)
 }
 
 #[derive(serde::Deserialize)]
