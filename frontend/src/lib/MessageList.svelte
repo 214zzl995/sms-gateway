@@ -8,6 +8,7 @@
     newMessageConcatChange,
     conactAddFinish,
     markConversationAsRead,
+    SmsStatus,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
   import { onDestroy, onMount } from "svelte";
@@ -25,8 +26,6 @@
   let loading = $state(true);
 
   let sendMessageContent = $state("");
-  let sendMessageLoading = $state(false);
-  let sendMessageErrMessage = $state("");
 
   let page = $state(1);
   let pageSize = $state(9999999);
@@ -189,8 +188,6 @@
       return;
     }
 
-    sendMessageLoading = true;
-
     // Mark as new message (to enable animations)
     isNewMessage = true;
 
@@ -200,6 +197,7 @@
       message: sendMessageContent,
       send: true,
       timestamp: new Date(),
+      status: SmsStatus.Loading,
     };
 
     // Add message to array
@@ -212,16 +210,27 @@
     setTimeout(() => {
       smoothScrollToBottom();
     }, 300);
-
     apiClient
       .sendSms(device, $currentConversation, newMessage.message)
       .then((res) => {
-        console.log("Message sent successfully:", res);
-        sendMessageLoading = false;
+        const messageId = res.data;
+        // 更新消息状态为已发送成功
+        messages = messages.map((msg) => {
+          if (msg.id === -1 && msg.message === newMessage.message) {
+            return { ...msg, status: SmsStatus.Read, id: messageId };
+          }
+          return msg;
+        });
       })
       .catch((err) => {
-        sendMessageErrMessage = err.message;
-        sendMessageLoading = false;
+        // 更新消息状态为发送失败
+        messages = messages.map((msg) => {
+          if (msg.id === -1 && msg.message === newMessage.message) {
+            return { ...msg, status: SmsStatus.Failed };
+          }
+          return msg;
+        });
+        console.error("发送消息失败:", err);
       });
   };
 
@@ -329,16 +338,35 @@
         transition:fade={{ duration: loadingDuration }}
       >
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
-          {#each messages as message, index (message.id)}
+          {#each messages as message, index ((message.id, message.timestamp))}
             <div
-              class="flex mb-2 message-wrapper"
+              class="flex mb-2 message-wrapper flex-row"
               class:justify-end={message.send}
               class:justify-start={!message.send}
               in:slideDown={{ duration: 300 }}
             >
+              
+
               <div
                 class="relative max-w-[70%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%]"
               >
+              <div class="absolute top-0 right-15">
+                {#if message.send && message.status !== undefined}
+                <div class="absolute bottom-0 right-1 -mb-4 mr-1">
+                  {#if message.status === SmsStatus.Loading}
+                    <div
+                      class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+                    ></div>
+                  {:else if message.status === SmsStatus.Failed}
+                    <div class="text-red-500 text-xs"></div>
+                  {:else if message.status === SmsStatus.Read}
+                    <div class="text-green-500 text-xs">
+                      haha
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+              </div>
                 <div
                   class="relative px-4 py-2 text-sm rounded-lg
                   {message.send
