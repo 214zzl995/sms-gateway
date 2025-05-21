@@ -27,7 +27,7 @@ pub struct SMS {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, sqlx::Type, Default)]
 #[repr(i32)]
-#[serde(into = "i32", from = "i32")] // 让序列化/反序列化都用数字
+#[serde(into = "i32", from = "i32")] 
 pub enum SmsStatus {
     #[default]
     Unread = 0,
@@ -248,6 +248,40 @@ impl SMS {
         .await?;
 
         Ok(sms_list)
+    }
+
+    pub async fn _update_status(&self, status: SmsStatus) -> Result<()> {
+        let pool = get_pool()?;
+        sqlx::query(
+            r#"
+            UPDATE sms
+            SET status = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(status as i32)
+        .bind(self.id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+    
+    pub async fn update_status_by_id(id: i64, status: SmsStatus) -> Result<()> {
+        let pool = get_pool()?;
+        sqlx::query(
+            r#"
+            UPDATE sms
+            SET status = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(status as i32)
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 }
 
