@@ -144,7 +144,7 @@
 
         formattedText = formattedText.replace(
           url,
-          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`,
+          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`
         );
       });
     }
@@ -192,6 +192,7 @@
 
     // Add new message
     const newMessage = {
+      id: -1,
       message: sendMessageContent,
       send: true,
       timestamp: new Date(),
@@ -321,7 +322,7 @@
               message.timestamp,
               index === messages.length - 1
                 ? null
-                : messages[index - 1]?.timestamp,
+                : messages[index - 1]?.timestamp
             )}
             {#if timeHeader || index === messages.length - 1}
               <div

@@ -284,9 +284,11 @@ impl Modem {
             }
         }
 
-        // Final response validation
-        if ok_received && cmgs_received {
+        // 成功发送后立即释放串口锁
+        drop(port);
 
+        if ok_received && cmgs_received {
+            // 创建 SMS 记录并插入数据库，返回插入的 id
             let sms = SMS {
                 id: 0,
                 contact_id: contact.id,
@@ -297,14 +299,13 @@ impl Modem {
                 read: true,
             };
 
-            tokio::spawn(async move {
-                let _ = sms.insert().await.is_err_and(|err| {
-                    error!("{}", err);
-                    true
-                });
-            });
-
-            Ok(final_response)
+            match sms.insert().await {
+                Ok(id) => Ok(id.to_string()),
+                Err(err) => {
+                    error!("Failed to insert SMS: {}", err);
+                    Err(anyhow::anyhow!(err))
+                }
+            }
         } else {
             error!(
                 "Incomplete SMS response: {}",
@@ -317,7 +318,11 @@ impl Modem {
         }
     }
 
-    pub async fn read_sms_async_insert(&self, sms_type: SmsType, sse_manager: Arc<SseManager>) -> anyhow::Result<()> {
+    pub async fn read_sms_async_insert(
+        &self,
+        sms_type: SmsType,
+        sse_manager: Arc<SseManager>,
+    ) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
         if !sms_list.is_empty() {
             tokio::spawn(async move {
@@ -325,7 +330,7 @@ impl Modem {
                     log::error!("Insert SMS error: {}", err);
                 };
 
-                tokio::spawn(async move{
+                tokio::spawn(async move {
                     let conversations = crate::db::Conversation::query_unread().await.unwrap();
                     sse_manager.send(conversations);
                 })
