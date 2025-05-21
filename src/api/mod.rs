@@ -128,7 +128,7 @@ async fn send_sms(
     let modem = devices.get(&payload.modem_id);
     match modem {
         Some(m) => match m.send_sms_pdu(&payload.contact, &payload.message).await {
-            Ok(_) => (StatusCode::OK, "SMS sent").into_response(),
+            Ok(id) => (StatusCode::OK, Json(id)).into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Send failed: {}", e),
@@ -273,7 +273,7 @@ async fn sse_events(
 
 async fn get_conversation_unread(Path(id): Path<i64>) -> Response {
     match SMS::query_unread_by_contact_id(&id).await {
-        Ok(messages) =>  (StatusCode::OK, Json(messages)).into_response(),
+        Ok(messages) => (StatusCode::OK, Json(messages)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

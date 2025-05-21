@@ -55,7 +55,7 @@ impl Modem {
         let port = serialport::new(com_port, baud_rate)
             .timeout(Duration::from_secs(60))
             .open()?;
-        
+
         info!("device:{},com:{} connected successfully", name, com_port);
 
         Ok(Modem {
@@ -91,12 +91,14 @@ impl Modem {
 
     /// Wait for SMS prompt and send message content
     async fn send_sms_content<F>(
-        &self, 
-        setup_cmd: &str, 
-        message: &str, 
-        transform_fn: F
-    ) -> anyhow::Result<String> 
-    where F: FnOnce(&str) -> anyhow::Result<String> {
+        &self,
+        setup_cmd: &str,
+        message: &str,
+        transform_fn: F,
+    ) -> anyhow::Result<String>
+    where
+        F: FnOnce(&str) -> anyhow::Result<String>,
+    {
         // Phase 1: Initialize SMS sending process
         let mut port = self.port.lock().await;
         self.send_locked(setup_cmd, &mut port)?;
@@ -168,45 +170,48 @@ impl Modem {
     }
 
     /// Send SMS message with enhanced response handling
-    pub async fn send_sms_text(&self, mobile: &str, message: &str) -> anyhow::Result<String> {
+    pub async fn send_sms_text(&self, mobile: &str, message: &str) -> anyhow::Result<i64> {
         info!("Sending SMS to {}: {}", mobile, message);
-        
-        let result = self.send_sms_content(
-            &format!("AT+CMGS=\"{}\"\r", mobile),
-            message,
-            |msg| Ok(string_to_ucs2(msg)?)
-        ).await?;
-        
-        let sms = ModemSMS {
-            contact: mobile.to_string(),
+
+        let _ = self
+            .send_sms_content(&format!("AT+CMGS=\"{}\"\r", mobile), message, |msg| {
+                Ok(string_to_ucs2(msg)?)
+            })
+            .await?;
+
+        // Create SMS record and insert into database
+        let sms = SMS {
+            id: 0,
+            contact_id: 0,
             timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
             message: message.to_string(),
             device: self.name.clone(),
             send: true,
+            read: true,
         };
-        
-        tokio::spawn(async move {
-            if let Err(err) = sms.insert().await {
-                error!("{}", err);
-            }
-        });
 
-        Ok(result)
+        match sms.insert().await {
+            Ok(id) => Ok(id),
+            Err(err) => {
+                error!("Failed to insert SMS: {}", err);
+                Err(anyhow::anyhow!(err))
+            }
+        }
     }
 
     /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
-    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<String> {
+    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<i64> {
         info!("Sending SMS via PDU to {}: {}", contact.name, message);
-        
+
         // PDU encoding
         let (pdu_data, tpdu_length) = build_pdu(&contact.name, message)?;
-        
-        let result = self.send_sms_content(
-            &format!("AT+CMGS={}\r", tpdu_length),
-            &pdu_data,
-            |pdu| Ok(pdu.to_string())
-        ).await?;
-        
+
+        let _ = self
+            .send_sms_content(&format!("AT+CMGS={}\r", tpdu_length), &pdu_data, |pdu| {
+                Ok(pdu.to_string())
+            })
+            .await?;
+
         // Create SMS record and insert into database
         let sms = SMS {
             id: 0,
@@ -219,7 +224,7 @@ impl Modem {
         };
 
         match sms.insert().await {
-            Ok(id) => Ok(id.to_string()),
+            Ok(id) => Ok(id),
             Err(err) => {
                 error!("Failed to insert SMS: {}", err);
                 Err(anyhow::anyhow!(err))
@@ -237,7 +242,9 @@ impl Modem {
             tokio::spawn(async move {
                 if let Ok(contact_ids) = ModemSMS::bulk_insert(&sms_list).await {
                     tokio::spawn(async move {
-                        if let Ok(conversations) = crate::db::Conversation::query_by_contact_ids(&contact_ids).await {
+                        if let Ok(conversations) =
+                            crate::db::Conversation::query_by_contact_ids(&contact_ids).await
+                        {
                             sse_manager.send(conversations);
                         }
                     });
@@ -266,30 +273,44 @@ impl Modem {
     }
 
     /// Get modem status info with simple pattern
-    async fn get_modem_info<T>(&self, command: &str, parser: fn(&str) -> Option<T>) -> io::Result<Option<T>> {
-        let response = self.send_command_with_ok(command).await?
-            .trim().to_string().replace("OK", "");
+    async fn get_modem_info<T>(
+        &self,
+        command: &str,
+        parser: fn(&str) -> Option<T>,
+    ) -> io::Result<Option<T>> {
+        let response = self
+            .send_command_with_ok(command)
+            .await?
+            .trim()
+            .to_string()
+            .replace("OK", "");
         Ok(parser(&response))
     }
 
     /// Get signal strength (RSSI) and Bit Error Rate (BER)
     pub async fn get_signal_quality(&self) -> io::Result<Option<SignalQuality>> {
-        self.get_modem_info("AT+CSQ\r\n", SignalQuality::from_response).await
+        self.get_modem_info("AT+CSQ\r\n", SignalQuality::from_response)
+            .await
     }
 
     /// Check network registration status
-    pub async fn check_network_registration(&self) -> io::Result<Option<NetworkRegistrationStatus>> {
-        self.get_modem_info("AT+CREG?\r\n", NetworkRegistrationStatus::from_response).await
+    pub async fn check_network_registration(
+        &self,
+    ) -> io::Result<Option<NetworkRegistrationStatus>> {
+        self.get_modem_info("AT+CREG?\r\n", NetworkRegistrationStatus::from_response)
+            .await
     }
 
     /// Check current operator
     pub async fn check_operator(&self) -> io::Result<Option<OperatorInfo>> {
-        self.get_modem_info("AT+COPS?\r\n", OperatorInfo::from_response).await
+        self.get_modem_info("AT+COPS?\r\n", OperatorInfo::from_response)
+            .await
     }
 
     /// Get modem model
     pub async fn get_modem_model(&self) -> io::Result<Option<ModemInfo>> {
-        self.get_modem_info("AT+CGMM\r\n", ModemInfo::from_response).await
+        self.get_modem_info("AT+CGMM\r\n", ModemInfo::from_response)
+            .await
     }
 
     /// Log escaping
@@ -314,7 +335,7 @@ impl Modem {
             match port.read(&mut temp_buf) {
                 Ok(bytes_read) => {
                     if bytes_read == 0 {
-                        break; 
+                        break;
                     }
 
                     buffer.extend_from_slice(&temp_buf[..bytes_read]);
