@@ -67,13 +67,45 @@ const connectSSE = () => {
 
     eventSource.addEventListener('conversations', (event) => {
         let data = event.data;
+        const newConversations = JSON.parse(data);
+        const currentConvId = get(currentConversation)?.id;
 
-        conversations.update((conversations) => {
-            const parsedData = JSON.parse(data);
-            
+        const updatedCurrentConv = newConversations.find(conv => conv.contact.id === currentConvId);
+        
+        if (updatedCurrentConv && !updatedCurrentConv.sms_preview.read && currentConvId !== -1) {
 
+            apiClient.markConversationAsReadAndGetLatest(currentConvId).then(res => {
+                if (res && res.data && res.data.length > 0) {
+                    window.dispatchEvent(new CustomEvent('update-messages', {
+                        detail: {
+                            messages: res.data,
+                            silentUpdate: true
+                        }
+                    }));
+                }
+            });
+        }
 
-            return parsedData;
+        conversations.update((currentConversations) => {
+            const conversationMap = new Map();
+            currentConversations.forEach(conv => {
+                conversationMap.set(conv.contact.id, conv);
+            });
+
+            newConversations.forEach(newConv => {
+                if (newConv.contact.id === currentConvId) {
+                    newConv.sms_preview.read = true;
+                }
+                conversationMap.delete(newConv.contact.id);
+            });
+
+            newConversations.sort((a, b) => {
+                const dateA = new Date(a.sms_preview.timestamp);
+                const dateB = new Date(b.sms_preview.timestamp);
+                return dateB.getTime() - dateA.getTime();
+            });
+
+            return [...newConversations, ...Array.from(conversationMap.values())];
         });
     });
 
@@ -191,3 +223,26 @@ export const conactAddFinish = (/** @type {string} */ name) => {
         });
     }
 }
+
+export const markConversationAsRead = (/** @type {number} */ contactId) => {
+    if (contactId === undefined || contactId === null || contactId === -1) {
+        return;
+    }
+
+    conversations.update(currentConversations => {
+        return currentConversations.map(conv => {
+            if (conv.contact.id === contactId && !conv.sms_preview.read) {
+                return {
+                    ...conv,
+                    sms_preview: {
+                        ...conv.sms_preview,
+                        read: true
+                    }
+                };
+            }
+            return conv;
+        });
+    });
+};
+
+

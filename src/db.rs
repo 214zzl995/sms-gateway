@@ -186,6 +186,35 @@ impl SMS {
 
         Ok(sms_id)
     }
+
+    pub async fn query_unread_by_contact_id(contact_id: &i64) -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let mut tx = pool.begin().await?;
+        let sms_list = sqlx::query_as(
+            r#"
+            SELECT id, contact_id, timestamp, message, device, send, read
+            FROM sms 
+            WHERE contact_id = ? AND read = false
+            ORDER BY timestamp DESC
+            "#,
+        )
+        .bind(contact_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+                UPDATE sms
+                SET read = true
+                WHERE contact_id = ? AND read = false
+                "#,
+        )
+        .bind(contact_id)
+        .execute(&mut *tx)
+        .await?;
+
+        Ok(sms_list)
+    }
 }
 
 impl Contact {
@@ -236,7 +265,7 @@ impl Conversation {
         Ok(conversations)
     }
 
-    pub async fn query_unread() -> Result<Vec<Self>> {
+    pub async fn _query_unread() -> Result<Vec<Self>> {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
@@ -246,6 +275,54 @@ impl Conversation {
         .await?;
 
         Ok(conversations)
+    }
+
+    pub async fn query_by_contact_ids(contact_ids: &[i64]) -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+
+        if contact_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 构建IN查询的参数列表
+        let mut query_builder = QueryBuilder::new(
+            "SELECT id, name, timestamp, message, read, device FROM v_contacts WHERE id IN (",
+        );
+
+        let mut separated = query_builder.separated(", ");
+        for &id in contact_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY timestamp DESC");
+
+        let conversations = query_builder.build_query_as().fetch_all(pool).await?;
+
+        Ok(conversations)
+    }
+
+    pub async fn _mark_as_read(&self) -> Result<()> {
+        let pool = get_pool()?;
+
+        // 更新最近一条消息的已读状态
+        sqlx::query(
+            r#"
+            UPDATE sms 
+            SET read = true 
+            WHERE contact_id = ? 
+            AND timestamp = (
+                SELECT timestamp 
+                FROM sms 
+                WHERE contact_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            )"#,
+        )
+        .bind(self.contact.id)
+        .bind(self.contact.id)
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -312,7 +389,7 @@ impl ModemSMS {
         Ok(sms_id)
     }
 
-    pub async fn bulk_insert(records: &[Self]) -> Result<()> {
+    pub async fn bulk_insert(records: &[Self]) -> Result<Vec<i64>> {
         let pool = get_pool()?;
 
         let mut transaction = pool.begin().await?;
@@ -375,7 +452,7 @@ impl ModemSMS {
 
         transaction.commit().await?;
 
-        Ok(())
+        Ok(contact_map.into_iter().map(|(_, id)| id).collect())
     }
 }
 

@@ -326,14 +326,20 @@ impl Modem {
         let sms_list = self.read_sms(sms_type).await?;
         if !sms_list.is_empty() {
             tokio::spawn(async move {
-                if let Err(err) = ModemSMS::bulk_insert(&sms_list).await {
-                    log::error!("Insert SMS error: {}", err);
-                };
-
-                tokio::spawn(async move {
-                    let conversations = crate::db::Conversation::query_unread().await.unwrap();
-                    sse_manager.send(conversations);
-                })
+                match ModemSMS::bulk_insert(&sms_list).await {
+                    Ok(contact_ids) => {
+                        tokio::spawn(async move {
+                            let conversations =
+                                crate::db::Conversation::query_by_contact_ids(&contact_ids)
+                                    .await
+                                    .unwrap();
+                            sse_manager.send(conversations);
+                        });
+                    }
+                    Err(err) => {
+                        log::error!("Insert SMS error: {}", err);
+                    }
+                }
             });
         }
         Ok(())

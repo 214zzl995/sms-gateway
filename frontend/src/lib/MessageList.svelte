@@ -7,9 +7,10 @@
     conversationLoading,
     newMessageConcatChange,
     conactAddFinish,
+    markConversationAsRead,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { devices } from "../stores/devices";
   import { quintOut } from "svelte/easing";
 
@@ -65,14 +66,17 @@
     prevConversationId = $currentConversation?.id || null;
 
     loading = true;
-    if ($currentConversation && $currentConversation.id !== -1) {
+    if ($currentConversation && prevConversationId !== -1) {
       apiClient
-        .getSmsPaginated(page, pageSize, $currentConversation.id)
+        .getSmsPaginated(page, pageSize, prevConversationId)
         .then((res) => {
           // Set messages without triggering animations when switching conversations
           isNewMessage = false;
           messages = res.data.data;
           loading = false;
+          if (page === 1) {
+            markConversationAsRead(prevConversationId);
+          }
         });
     }
 
@@ -246,6 +250,37 @@
       },
     };
   }
+
+  // Add auto-update functionality
+  function handleMessageUpdate(event) {
+    const { messages: newMessages, silentUpdate } = event.detail;
+
+    if (!newMessages || newMessages.length === 0) return;
+
+    // Disable animation effects
+    if (silentUpdate) {
+      isNewMessage = false;
+    }
+
+    // Remove duplicates to avoid repeated messages
+    const existingIds = new Set(messages.map((msg) => msg.id));
+    const uniqueNewMessages = newMessages.filter(
+      (msg) => !existingIds.has(msg.id)
+    );
+
+    if (uniqueNewMessages.length > 0) {
+      messages = [...uniqueNewMessages, ...messages];
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener("update-messages", handleMessageUpdate);
+  });
+
+  onDestroy(() => {
+    if (loadingTimer) clearTimeout(loadingTimer);
+    window.removeEventListener("update-messages", handleMessageUpdate);
+  });
 
   onDestroy(() => {
     if (loadingTimer) clearTimeout(loadingTimer);
