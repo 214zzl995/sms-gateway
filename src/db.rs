@@ -27,12 +27,30 @@ pub struct SMS {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, sqlx::Type, Default)]
 #[repr(i32)]
+#[serde(into = "i32", from = "i32")] // 让序列化/反序列化都用数字
 pub enum SmsStatus {
     #[default]
     Unread = 0,
     Read = 1,
     Loading = 2,
     Failed = 3,
+}
+
+impl From<i32> for SmsStatus {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => SmsStatus::Read,
+            2 => SmsStatus::Loading,
+            3 => SmsStatus::Failed,
+            _ => SmsStatus::Unread,
+        }
+    }
+}
+
+impl From<SmsStatus> for i32 {
+    fn from(status: SmsStatus) -> Self {
+        status as i32
+    }
 }
 
 pub struct ModemSMS {
@@ -114,7 +132,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
+            SELECT id, contact_id, timestamp, message, device, send, status
             FROM sms 
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
@@ -145,7 +163,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
+            SELECT id, contact_id, timestamp, message, device, send, status
             FROM sms 
             WHERE contact_id = ?
             ORDER BY timestamp DESC
@@ -205,7 +223,7 @@ impl SMS {
         let mut tx = pool.begin().await?;
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
+            SELECT id, contact_id, timestamp, message, device, send, status
             FROM sms 
             WHERE contact_id = ? AND status = ?
             ORDER BY timestamp DESC
@@ -273,7 +291,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status , device FROM v_contacts ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;
@@ -285,7 +303,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts where status = ? ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status, device FROM v_contacts where status = ? ORDER BY timestamp DESC"
         )
         .bind(SmsStatus::Unread as i32)
         .fetch_all(pool)
@@ -303,7 +321,7 @@ impl Conversation {
 
         // 构建IN查询的参数列表
         let mut query_builder = QueryBuilder::new(
-            "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts WHERE id IN (",
+            "SELECT id, name, timestamp, message, status, device FROM v_contacts WHERE id IN (",
         );
 
         let mut separated = query_builder.separated(", ");

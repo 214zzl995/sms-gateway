@@ -15,7 +15,7 @@ create table sms
     device     text      not null,
     contact_id integer   not null,
     send       boolean   not null default 0,
-    status     integer   not null default 0,
+    status     integer   not null default 0
 );
 
 create index idx_sms_contact_timestamp on sms (contact_id, timestamp desc);

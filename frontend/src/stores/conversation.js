@@ -8,6 +8,14 @@ export const currentConversation = writable(null);
 export const conversationLoading = writable(false);
 export const sseConnected = writable(false);
 
+// 定义前端用的 SmsStatus 枚举
+export const SmsStatus = {
+    Unread: 0,
+    Read: 1,
+    Loading: 2,
+    Failed: 3,
+};
+
 let eventSource = null;
 let reconnectTimeout = null;
 const RECONNECT_DELAY = 5000; // 5 seconds
@@ -72,7 +80,7 @@ const connectSSE = () => {
 
         const updatedCurrentConv = newConversations.find(conv => conv.contact.id === currentConvId);
         
-        if (updatedCurrentConv && !updatedCurrentConv.sms_preview.read && currentConvId !== -1) {
+        if (updatedCurrentConv && updatedCurrentConv.sms_preview.status === SmsStatus.Unread && currentConvId !== -1) {
 
             apiClient.markConversationAsReadAndGetLatest(currentConvId).then(res => {
                 if (res && res.data && res.data.length > 0) {
@@ -94,7 +102,7 @@ const connectSSE = () => {
 
             newConversations.forEach(newConv => {
                 if (newConv.contact.id === currentConvId) {
-                    newConv.sms_preview.read = true;
+                    newConv.sms_preview.status = SmsStatus.Read;
                 }
                 conversationMap.delete(newConv.contact.id);
             });
@@ -153,7 +161,7 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
                 },
                 sms_preview: {
                     message: "",
-                    read: true,
+                    status: SmsStatus.Read,
                     timestamp: new Date().toISOString(),
                 },
             }, ...conversations,];
@@ -178,7 +186,7 @@ export const newMessageConcatChange = (/** @type {string} */ conactName) => {
             },
             sms_preview: {
                 message: "",
-                read: true,
+                status: SmsStatus.Read,
                 timestamp: new Date().toISOString(),
             },
         }, ...conversations.filter((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id !== -1)];
@@ -231,12 +239,12 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
 
     conversations.update(currentConversations => {
         return currentConversations.map(conv => {
-            if (conv.contact.id === contactId && !conv.sms_preview.read) {
+            if (conv.contact.id === contactId && conv.sms_preview.status === SmsStatus.Unread) {
                 return {
                     ...conv,
                     sms_preview: {
                         ...conv.sms_preview,
-                        read: true
+                        status: SmsStatus.Read
                     }
                 };
             }
