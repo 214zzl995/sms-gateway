@@ -214,7 +214,7 @@
     }, 300);
 
     apiClient
-      .sendSms(device, $currentConversation, concatInputText)
+      .sendSms(device, $currentConversation, newMessage.message)
       .then((res) => {
         console.log("Message sent successfully:", res);
         sendMessageLoading = false;
