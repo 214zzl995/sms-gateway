@@ -213,16 +213,16 @@
       smoothScrollToBottom();
     }, 300);
 
-    // API call would go here
-    // apiClient
-    //   .sendSms(device, $currentConversation, concatInputText)
-    //   .then((res) => {
-    //     sendMessageLoading = false;
-    //   })
-    //   .catch((err) => {
-    //     sendMessageErrMessage = err.message;
-    //     sendMessageLoading = false;
-    //   });
+    apiClient
+      .sendSms(device, $currentConversation, concatInputText)
+      .then((res) => {
+        console.log("Message sent successfully:", res);
+        sendMessageLoading = false;
+      })
+      .catch((err) => {
+        sendMessageErrMessage = err.message;
+        sendMessageLoading = false;
+      });
   };
 
   /**

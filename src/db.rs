@@ -173,6 +173,7 @@ impl SMS {
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO sms (contact_id, timestamp, message, device, send, read)
+            VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
         .bind(self.contact_id)
@@ -375,6 +376,7 @@ impl ModemSMS {
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO sms (contact_id, timestamp, message, device, send, read)
+            VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
         .bind(contact_id)
