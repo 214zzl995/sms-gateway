@@ -11,6 +11,13 @@
         deleteConversation,
     } from "../stores/conversation";
 
+    const SmsStatus = {
+        Unread: 0,
+        Read: 1,
+        Loading: 2,
+        Failed: 3,
+    };
+
     let searchTemporaryIsActive = $state(false);
     let searchTemporaryValue = $state("");
 
@@ -112,7 +119,7 @@
                                     icon="mage:user-circle-fill"
                                     class="text-gray-400 w-8 h-8"
                                 />
-                                {#if !conversation.sms_preview.read}
+                                {#if conversation.sms_preview.status === SmsStatus.Unread}
                                     <span
                                         class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full translate-x-1/2 -translate-y-1/2"
                                     ></span>

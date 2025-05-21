@@ -16,13 +16,23 @@ static POOL: OnceLock<SqlitePool> = OnceLock::new();
 /// Represents a single SMS message
 #[derive(Debug, FromRow, Deserialize, Serialize, Default)]
 pub struct SMS {
-    pub id: i64, // SQLite auto-increment ID
+    pub id: i64, 
     pub contact_id: i64,
     pub timestamp: NaiveDateTime,
     pub message: String,
     pub device: String,
     pub send: bool,
-    pub read: bool,
+    pub status: SmsStatus,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, sqlx::Type, Default)]
+#[repr(i32)]
+pub enum SmsStatus {
+    #[default]
+    Unread = 0,
+    Read = 1,
+    Loading = 2,
+    Failed = 3,
 }
 
 pub struct ModemSMS {
@@ -44,7 +54,7 @@ pub struct SMSPreview {
     pub device: String,
     pub message: String,
     pub timestamp: NaiveDateTime,
-    pub read: bool,
+    pub status: SmsStatus,
 }
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
@@ -104,7 +114,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, read
+            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
             FROM sms 
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
@@ -135,7 +145,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, read
+            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
             FROM sms 
             WHERE contact_id = ?
             ORDER BY timestamp DESC
@@ -152,11 +162,13 @@ impl SMS {
             sqlx::query(
                 r#"
                 UPDATE sms
-                SET read = true
-                WHERE contact_id = ? AND read = false
+                SET status = ?
+                WHERE contact_id = ? AND status = ?
                 "#,
             )
+            .bind(SmsStatus::Read as i32)
             .bind(contact_id)
+            .bind(SmsStatus::Unread as i32)
             .execute(&mut *tx)
             .await?;
         }
@@ -172,7 +184,7 @@ impl SMS {
         let pool = get_pool()?;
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO sms (contact_id, timestamp, message, device, send, read)
+            INSERT INTO sms (contact_id, timestamp, message, device, send, status)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
@@ -181,7 +193,7 @@ impl SMS {
         .bind(&self.message)
         .bind(&self.device)
         .bind(&self.send)
-        .bind(&self.read)
+        .bind(self.status as i32)
         .fetch_one(pool)
         .await?;
 
@@ -193,24 +205,27 @@ impl SMS {
         let mut tx = pool.begin().await?;
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, read
+            SELECT id, contact_id, timestamp, message, device, send, status as "status: SmsStatus"
             FROM sms 
-            WHERE contact_id = ? AND read = false
+            WHERE contact_id = ? AND status = ?
             ORDER BY timestamp DESC
             "#,
         )
         .bind(contact_id)
+        .bind(SmsStatus::Unread as i32)
         .fetch_all(&mut *tx)
         .await?;
 
         sqlx::query(
             r#"
                 UPDATE sms
-                SET read = true
-                WHERE contact_id = ? AND read = false
+                SET status = ?
+                WHERE contact_id = ? AND status = ?
                 "#,
         )
+        .bind(SmsStatus::Read as i32)
         .bind(contact_id)
+        .bind(SmsStatus::Unread as i32)
         .execute(&mut *tx)
         .await?;
 
@@ -258,7 +273,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, read, device FROM v_contacts ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;
@@ -270,8 +285,9 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, read, device FROM v_contacts where read = false ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts where status = ? ORDER BY timestamp DESC"
         )
+        .bind(SmsStatus::Unread as i32)
         .fetch_all(pool)
         .await?;
 
@@ -287,7 +303,7 @@ impl Conversation {
 
         // 构建IN查询的参数列表
         let mut query_builder = QueryBuilder::new(
-            "SELECT id, name, timestamp, message, read, device FROM v_contacts WHERE id IN (",
+            "SELECT id, name, timestamp, message, status as \"status: SmsStatus\", device FROM v_contacts WHERE id IN (",
         );
 
         let mut separated = query_builder.separated(", ");
@@ -308,7 +324,7 @@ impl Conversation {
         sqlx::query(
             r#"
             UPDATE sms 
-            SET read = true 
+            SET status = ? 
             WHERE contact_id = ? 
             AND timestamp = (
                 SELECT timestamp 
@@ -318,6 +334,7 @@ impl Conversation {
                 LIMIT 1
             )"#,
         )
+        .bind(SmsStatus::Read as i32)
         .bind(self.contact.id)
         .bind(self.contact.id)
         .execute(pool)
@@ -372,10 +389,10 @@ impl ModemSMS {
     ) -> Result<i64> {
         let contact_id = self.get_contact_id(transaction).await?;
 
-        //When send is true, read defaults to true
+        //When send is true, status defaults to Read
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO sms (contact_id, timestamp, message, device, send, read)
+            INSERT INTO sms (contact_id, timestamp, message, device, send, status)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
@@ -384,7 +401,7 @@ impl ModemSMS {
         .bind(&self.message)
         .bind(&self.device)
         .bind(&self.send)
-        .bind(&self.send)
+        .bind(if self.send { SmsStatus::Read as i32 } else { SmsStatus::Unread as i32 })
         .fetch_one(&mut **transaction)
         .await?;
 
@@ -438,7 +455,7 @@ impl ModemSMS {
 
         for chunk in records.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new(
-                "INSERT INTO sms (contact_id, timestamp, message, device, send) ",
+                "INSERT INTO sms (contact_id, timestamp, message, device, send, status) ",
             );
 
             query_builder.push_values(chunk, |mut b, sms| {
@@ -446,7 +463,8 @@ impl ModemSMS {
                     .push_bind(&sms.timestamp)
                     .push_bind(&sms.message)
                     .push_bind(&sms.device)
-                    .push_bind(&sms.send);
+                    .push_bind(&sms.send)
+                    .push_bind(if sms.send { SmsStatus::Read as i32 } else { SmsStatus::Unread as i32 });
             });
 
             query_builder.build().execute(&mut *transaction).await?;

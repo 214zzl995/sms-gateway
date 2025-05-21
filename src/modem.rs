@@ -187,7 +187,7 @@ impl Modem {
             message: message.to_string(),
             device: self.name.clone(),
             send: true,
-            read: true,
+            status: crate::db::SmsStatus::Read,
         };
 
         match sms.insert().await {
@@ -220,7 +220,7 @@ impl Modem {
             message: message.to_string(),
             device: self.name.clone(),
             send: true,
-            read: true,
+            status: crate::db::SmsStatus::Read
         };
 
         match sms.insert().await {

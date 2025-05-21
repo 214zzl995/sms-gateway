@@ -15,14 +15,14 @@ create table sms
     device     text      not null,
     contact_id integer   not null,
     send       boolean   not null default 0,
-    read       boolean   not null default 0
+    status     integer   not null default 0,
 );
 
 create index idx_sms_contact_timestamp on sms (contact_id, timestamp desc);
 create index idx_sms_contact_id on sms (contact_id);
 
 create view v_contacts as
-select c.id, c.name, s.timestamp, s.message, s.read, s.device
+select c.id, c.name, s.timestamp, s.message, s.status, s.device
 from contacts c
          left join (select *
                     from (select s.*,
