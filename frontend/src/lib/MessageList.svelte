@@ -238,8 +238,15 @@
       smoothScrollToBottom();
     }, 300);
 
+    const concat = $currentConversation.concat.new
+      ? {
+          id: $currentConversation.concat.id,
+          name: concatInputText,
+        }
+      : $currentConversation.concat;
+
     apiClient
-      .sendSms(device, $currentConversation, newMessage.message)
+      .sendSms(device, concat, newMessage.message)
       .then((res) => {
         isNewMessage = false;
         const messageId = res.data;

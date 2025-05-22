@@ -386,6 +386,25 @@ impl Contact {
 
         Ok(result.rows_affected() > 0)
     }
+
+    /// 更新联系人名称
+    pub async fn update_name(&self) -> Result<bool> {
+        let pool = get_pool()?;
+        
+        let result = sqlx::query(
+            r#"
+            UPDATE contacts
+            SET name = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&self.name)
+        .bind(self.id)
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 impl Conversation {

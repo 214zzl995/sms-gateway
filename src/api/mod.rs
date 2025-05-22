@@ -127,6 +127,11 @@ async fn send_sms(
     Json(payload): Json<SmsPayload>,
 ) -> impl IntoResponse {
     let modem = devices.get(&payload.modem_id);
+
+    if payload.new {
+        payload.contact.update_name().await.unwrap();
+    }
+
     match modem {
         Some(m) => match m.send_sms_pdu(&payload.contact, &payload.message).await {
             Ok((sms_id, contact_id)) => (
@@ -296,6 +301,7 @@ pub struct SmsPayload {
     modem_id: String,
     contact: Contact,
     message: String,
+    new: bool,
 }
 
 #[derive(Serialize)]

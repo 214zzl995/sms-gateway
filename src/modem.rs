@@ -231,21 +231,14 @@ impl Modem {
         }
     }
     /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
-    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<(i64, i64)> {
+    pub async fn send_sms_pdu(
+        &self,
+        contact: &Contact,
+        message: &str,
+    ) -> anyhow::Result<(i64, i64)> {
         info!("Sending SMS via PDU to {}: {}", contact.name, message);
 
-        // 检查contact.id是否为-1，如果是则先通过insert_or_get_id获取或插入联系人ID
-        let contact_id = if contact.id == -1 {
-            match crate::db::Contact::insert_or_get_id(&contact.name).await {
-                Ok(id) => id,
-                Err(err) => {
-                    error!("Failed to insert or get contact ID: {}", err);
-                    return Err(anyhow::anyhow!(err));
-                }
-            }
-        } else {
-            contact.id
-        };
+        let contact_id = contact.id;
 
         let sms = SMS {
             id: 0,

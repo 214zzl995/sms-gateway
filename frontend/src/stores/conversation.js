@@ -122,13 +122,11 @@ export const initConversation = () => {
     conversationLoading.set(true);
     connectSSE();
 
-    // 检查是否有待处理的联系人更新
     const pendingUpdate = sessionStorage.getItem('pendingContactUpdate');
     if (pendingUpdate) {
         try {
             const { contactId, contactName } = JSON.parse(pendingUpdate);
             if (contactId && contactName) {
-                // 稍后会使用此信息更新当前会话
                 sessionStorage.removeItem('pendingContactUpdate');
             }
         } catch (e) {
