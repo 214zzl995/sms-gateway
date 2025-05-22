@@ -32,7 +32,7 @@
 
   let showLoading = $state(true);
   let loadingTimer = null;
-
+  
   // Track conversation ID changes to control animations
   let prevConversationId = $state(null);
   let messageContainer = $state(null);
@@ -345,28 +345,28 @@
               class:justify-start={!message.send}
               in:slideDown={{ duration: 300 }}
             >
-              
-
               <div
                 class="relative max-w-[70%] md:max-w-[65%] lg:max-w-[60%] xl:max-w-[55%]"
               >
-              <div class="absolute top-0 right-15">
                 {#if message.send && message.status !== undefined}
-                <div class="absolute bottom-0 right-1 -mb-4 mr-1">
-                  {#if message.status === SmsStatus.Loading}
-                    <div
-                      class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
-                    ></div>
-                  {:else if message.status === SmsStatus.Failed}
-                    <div class="text-red-500 text-xs"></div>
-                  {:else if message.status === SmsStatus.Read}
-                    <div class="text-green-500 text-xs">
-                      haha
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-              </div>
+                  <div
+                    class="absolute top-1/2 -left-6 -translate-y-1/2 transform"
+                  >
+                    {#if message.status === SmsStatus.Loading}
+                      <div
+                        class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+                      ></div>
+                    {:else if message.status === SmsStatus.Failed}
+                      <Icon
+                        icon="mage:information-circle-fill"
+                        class="text-red-500 w-5 h-5"
+                      />
+                    {:else if message.status === SmsStatus.Read}
+                      <div class="text-green-500 text-xs"></div>
+                    {/if}
+                  </div>
+                {/if}
+
                 <div
                   class="relative px-4 py-2 text-sm rounded-lg
                   {message.send

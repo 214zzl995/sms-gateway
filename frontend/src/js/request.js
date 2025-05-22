@@ -7,7 +7,7 @@ const queryString = (/** @type {{ [x: string]: string | number | boolean; }} */ 
     .join('&');
 
 const request = (/** @type {string} */ partialUrl, /** @type {any} */ body, /** @type {any} */ query,
-    method = 'GET',/** @type {RequestMode} */ mode = 'cors', contentType = 'application/json',/** @type Record<string, string> */ headers = {}) => {
+    method = 'GET',/** @type {RequestMode} */ mode = 'cors', contentType = 'application/json',/** @type Record<string, string> */ headers = {}, /** @type {Object} */ options = {}) => {
 
 
     const needContentType = ['POST', 'PUT', 'GET'].includes(method.toUpperCase());
@@ -29,7 +29,8 @@ const request = (/** @type {string} */ partialUrl, /** @type {any} */ body, /** 
             ...headers
         },
         mode, // 用来决定是否允许跨域请求  值有 三个 same-origin，no-cors（默认）以及 cores;
-        cache: "default" // 是否缓存请求资源 可选值有 default 、 no-store 、 reload 、 no-cache 、 force-cache 或者 only-if-cached 。
+        cache: "default", // 是否缓存请求资源 可选值有 default 、 no-store 、 reload 、 no-cache 、 force-cache 或者 only-if-cached 。
+        ...options // 支持额外选项如 signal
     }
 
     return new Promise((resolve, reject) => {
@@ -60,9 +61,7 @@ class Fetch {
          * @type {() => any}
          */
         this.after = after; 
-    }
-
-    /**
+    }    /**
      * @param {string} partialUrl
      * @param {any} body
      * @param {any} query
@@ -70,11 +69,12 @@ class Fetch {
      * @param {RequestMode} mode
      * @param {string} [contentType]
      * @param {Record<string, string>} [headers]
+     * @param {Object} [options]
      */
-    _request(partialUrl, body, query, method, mode, contentType, headers) {
+    _request(partialUrl, body, query, method, mode, contentType, headers, options = {}) {
         this.before && this.before();	
         const mergedHeaders = { ...this._getAuthHeader(), ...headers };
-        const promise = request(partialUrl, body, query, method, mode, contentType, mergedHeaders);
+        const promise = request(partialUrl, body, query, method, mode, contentType, mergedHeaders, options);
         promise
             .then(response => {
                 if (response.status === 401) {
@@ -94,16 +94,18 @@ class Fetch {
             return { 'Authorization': `Basic ${token}` };
         }
         return {};
-    }
-
-    /**
+    }    /**
      * @param {string} partialUrl
      * @param {Record<string, string | number>} query
      * @param {string} contentType
-     * @param {Record<string, string>} [headers]
+     * @param {Record<string, string | AbortSignal>} [headers]
+     * @param {Object} [options]
      */
-    get(partialUrl, query, contentType, headers) {
-        return this._request(partialUrl, undefined, query, "GET", undefined, contentType, headers);
+    get(partialUrl, query, contentType, headers = {}, options = {}) {
+        // 提取 signal 到 options 对象
+        const { signal, ...actualHeaders } = headers || {};
+        const actualOptions = signal ? { ...options, signal } : options;
+        return this._request(partialUrl, undefined, query, "GET", undefined, contentType, actualHeaders, actualOptions);
     }
 
     /**
@@ -137,7 +139,7 @@ class Fetch {
 }
 
 const FetchApi = {
-    get: (/** @type {string} */ partialUrl,/** @type {Record<string, string | number>} */ query, /** @type {string} */ contentType,/** @type {Record<string, string>} */ headers) => {
+    get: (/** @type {string} */ partialUrl,/** @type {Record<string, string | number>} */ query, /** @type {string} */ contentType,/** @type {Record<string, string | AbortSignal>} */ headers) => {
         return new Fetch().get(partialUrl, query, contentType, headers);
     },
     delete: (/** @type {string} */ partialUrl, /** @type {any} */ query) => {
