@@ -253,4 +253,27 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
     });
 };
 
+export const updateConversationLastMessage = (/** @type {number} */ contactId, /** @type {string} */ message) => {
+    if (contactId === undefined || contactId === null || contactId === -1) {
+        return;
+    }
+
+    conversations.update(currentConversations => {
+        return currentConversations.map(conv => {
+            if (conv.contact.id === contactId) {
+                return {
+                    ...conv,
+                    sms_preview: {
+                        ...conv.sms_preview,
+                        message: message,
+                        timestamp: new Date().toISOString(),
+                        status: SmsStatus.Read
+                    }
+                };
+            }
+            return conv;
+        });
+    });
+};
+
 

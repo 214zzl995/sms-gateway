@@ -9,6 +9,7 @@
     conactAddFinish,
     markConversationAsRead,
     SmsStatus,
+    updateConversationLastMessage,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
   import { onDestroy, onMount } from "svelte";
@@ -62,13 +63,8 @@
 
     loading = true;
     if ($currentConversation && prevConversationId !== -1) {
-
       apiClient
-        .getSmsPaginated(
-          page,
-          pageSize,
-          prevConversationId
-        )
+        .getSmsPaginated(page, pageSize, prevConversationId)
         .then((res) => {
           isNewMessage = false;
           messages = res.data.data;
@@ -118,30 +114,35 @@
       sendMessage($devices[0].name);
     }
   };
-
   /**
    * Enhanced URL regex that better handles URLs with surrounding punctuation
    * and properly excludes Chinese parentheses (（）) from the URL
    */
   const urlRegex =
     /https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
+  /**
+   * Regular expression to detect verification codes in messages
+   * Matches:
+   * - 4-8 digit codes
+   * - Codes that might be preceded by common Chinese verification code text
+   */
+  const verificationCodeRegex =
+    /(?:验证码|校验码|(?<!号)码|code|Code)[^0-9]*([0-9]{4,8})/gi;
 
   /**
    * Formats text by converting URLs into HTML anchor tags
    * @param {string} text - The input text containing URLs to format
    * @returns {string} Text with URLs converted to HTML links
-   */
-  function formatMessageWithLinks(text) {
+   */ function formatMessage(text) {
     if (!text) return "";
 
     // Create a copy of the text to work with
     let formattedText = text;
 
     // Replace URLs with anchor tags
-    const matches = text.match(urlRegex);
-
-    if (matches) {
-      matches.forEach((url) => {
+    const urlMatches = text.match(urlRegex);
+    if (urlMatches) {
+      urlMatches.forEach((url) => {
         // Make sure we're getting the URL without Chinese parentheses
         const cleanUrl = url.replace(/[（）]/g, "");
 
@@ -150,6 +151,28 @@
           `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`
         );
       });
+    }
+    let copiedCode = null; // Replace verification codes with styled spans
+    const codeMatches = text.matchAll(verificationCodeRegex);
+    for (const match of codeMatches) {
+      const [fullMatch, code] = match;
+      const prefix = fullMatch.slice(0, fullMatch.lastIndexOf(code));
+      formattedText = formattedText.replace(
+        fullMatch,
+        `${prefix}<span class="inline-flex items-center justify-center gap-1 bg-gray-100/80 dark:bg-zinc-700/80 hover:bg-gray-200 dark:hover:bg-zinc-600 text-blue-600 dark:text-blue-400 transition-colors duration-200 cursor-pointer px-1.5 py-0.5 rounded mx-0.5" onclick="(function(event){
+            event.preventDefault();
+            event.stopPropagation();
+            navigator.clipboard.writeText('${code}');
+            const toast = document.createElement('div');
+            toast.className = 'fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full text-sm opacity-0 transition-opacity duration-300';
+            toast.textContent = '验证码已复制';
+            document.body.appendChild(toast);
+            requestAnimationFrame(() => toast.style.opacity = '1');
+            setTimeout(() => {
+              toast.style.opacity = '0';
+              setTimeout(() => toast.remove(), 300);
+            }, 2000);          })(event)" title="点击复制验证码">${code}<svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></span>`
+      );
     }
 
     return formattedText;
@@ -213,17 +236,24 @@
     apiClient
       .sendSms(device, $currentConversation, newMessage.message)
       .then((res) => {
+        isNewMessage = false;
         const messageId = res.data;
-        // 更新消息状态为已发送成功
         messages = messages.map((msg) => {
           if (msg.id === -1 && msg.message === newMessage.message) {
             return { ...msg, status: SmsStatus.Read, id: messageId };
           }
           return msg;
         });
+
+        if ($currentConversation && $currentConversation.id !== -1) {
+          updateConversationLastMessage(
+            $currentConversation.id,
+            newMessage.message
+          );
+        }
       })
       .catch((err) => {
-        // 更新消息状态为发送失败
+        isNewMessage = false;
         messages = messages.map((msg) => {
           if (msg.id === -1 && msg.message === newMessage.message) {
             return { ...msg, status: SmsStatus.Failed };
@@ -338,7 +368,7 @@
         transition:fade={{ duration: loadingDuration }}
       >
         <div class="flex flex-col-reverse gap-2 p-2 w-full mb-20 mt-12">
-          {#each messages as message, index ((message.id, message.timestamp))}
+          {#each messages as message, index (message.id)}
             <div
               class="flex mb-2 message-wrapper flex-row"
               class:justify-end={message.send}
@@ -376,7 +406,7 @@
                   {message.send ? 'before:-right-1' : 'before:-left-1'}"
                 >
                   <p class="whitespace-pre-wrap break-words overflow-hidden">
-                    {@html formatMessageWithLinks(message.message)}
+                    {@html formatMessage(message.message)}
                   </p>
                 </div>
               </div>
