@@ -238,7 +238,9 @@
       smoothScrollToBottom();
     }, 300);
 
-    const concat = $currentConversation.concat.new
+    console.log($currentConversation)
+
+    const concat = $currentConversation.concat.new === true
       ? {
           id: $currentConversation.concat.id,
           name: concatInputText,

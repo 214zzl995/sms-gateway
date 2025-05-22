@@ -24,7 +24,7 @@ create index idx_sms_contact_id on sms (contact_id);
 create view v_contacts as
 select c.id, c.name, s.timestamp, s.message, s.status, s.device
 from contacts c
-         left join (select *
+         inner join (select *
                     from (select s.*,
                                  row_number() over (partition by contact_id order by timestamp desc) as rn
                           from sms s) sub
