@@ -41,9 +41,10 @@ class ApiClient {
      * @param {string} modemId - Modem ID
      * @param {object} contact - Target phone number
      * @param {string} message - SMS content
+     * @param {boolean} new_message - Whether to send a new message
      */
-    async sendSms(modemId, contact, message) {
-        const payload = { modem_id: modemId, contact, message };
+    async sendSms(modemId, contact, message, new_message) {
+        const payload = { modem_id: modemId, contact, message ,new: new_message};
         return FetchApi.post('/api/sms', payload)
     }
 

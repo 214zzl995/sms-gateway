@@ -4,7 +4,7 @@ import { getStorageValue, updateStorageValue } from '../js/storage';
 import { EventSourcePolyfill } from 'event-source-polyfill';
 
 export const conversations = writable([]);
-export const currentConversation = writable(null);
+export const currentContact = writable(null);
 export const conversationLoading = writable(false);
 export const sseConnected = writable(false);
 
@@ -75,7 +75,7 @@ const connectSSE = () => {
     eventSource.addEventListener('conversations', (event) => {
         let data = event.data;
         const newConversations = JSON.parse(data);
-        const currentConvId = get(currentConversation)?.id;
+        const currentConvId = get(currentContact)?.id;
 
         const updatedCurrentConv = newConversations.find(conv => conv.contact.id === currentConvId);
 
@@ -138,14 +138,14 @@ export const initConversation = () => {
     apiClient.getConversation().then((res) => {
         getStorageValue("currentConversation").then((storageValue) => {
             if (storageValue !== null && storageValue !== undefined && res.data.find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === storageValue.id)) {
-                currentConversation.set(storageValue);
+                currentContact.set(storageValue);
             } else {
                 if (res.data.length > 0) {
                     updateStorageValue("currentConversation", res.data[0].contact);
-                    currentConversation.set(res.data[0].contact);
+                    currentContact.set(res.data[0].contact);
                 } else {
                     apiClient.createContact(createNewContactName()).then((res) => {
-                        currentConversation.set({
+                        currentContact.set({
                             id: res.data,
                             name: "新信息",
                             new: true,
@@ -161,7 +161,7 @@ export const initConversation = () => {
 }
 
 export const changeCurrentConversation = (/** @type {any} */ contact) => {
-    if (contact.id === get(currentConversation)?.id) {
+    if (contact.id === get(currentContact)?.id) {
         return;
     }
     updateStorageValue("currentConversation", contact);
@@ -182,7 +182,7 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
             }, ...conversations,];
         });
     }
-    currentConversation.set(contact);
+    currentContact.set(contact);
     if (contact.new === true) {
         scrollToConversation(contact.id);
     }
@@ -196,7 +196,7 @@ export const newMessageConcatChange = (/** @type {string} */ conactName) => {
     conversations.update((conversations) => {
         return [{
             contact: {
-                id: get(currentConversation)?.id || 0,
+                id: get(currentContact)?.id || 0,
                 name: conactName,
                 new: true,
             },
@@ -240,7 +240,7 @@ export const scrollToConversation = (/** @type {number} */ id) => {
 export const conactAddFinish = (/** @type {string} */ name) => {
     const conversation = get(conversations).find((/** @type {{ contact: { id: any; name: any; new: any; }; }} */ item) => item.contact.name === name && !item.contact.new);
     if (conversation) {
-        currentConversation.set(conversation.contact);
+        currentContact.set(conversation.contact);
         scrollToConversation(conversation.contact.id);
         conversations.update((conversations) => {
             return conversations.filter((/** @type {{ contact: { new: any; }; }} */ item) => !item.contact.new);
@@ -269,9 +269,30 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
     });
 };
 
-export const updateConversationLastMessage = (/** @type {number} */ contactId, /** @type {string} */ message, device) => {
+/**
+ * 更新会话的最后一条消息信息
+ * @param {number} contactId - 联系人ID
+ * @param {string} message - 最新消息内容
+ * @param {Object} device - 设备信息对象
+ * @param {string} contactName - 联系人名称
+ * @returns {void}
+ */
+export const updateConversationLastMessage = (
+    /** @type {number} */ contactId,
+    /** @type {string} */ message,
+    /** @type {any} */ device,
+    /** @type {string} */ contactName,
+) => {
     if (contactId === undefined || contactId === null) {
         return;
+    }
+
+    if (get(currentContact)?.id === contactId) {
+        currentContact.set({
+            ...get(currentContact),
+            name: contactName,
+            new: false
+        });
     }
 
     conversations.update(currentConversations => {
@@ -279,6 +300,11 @@ export const updateConversationLastMessage = (/** @type {number} */ contactId, /
             if (conv.contact.id === contactId) {
                 return {
                     ...conv,
+                    contact: {
+                        ...conv.contact,
+                        name: contactName,
+                        new: false
+                    },
                     sms_preview: {
                         ...conv.sms_preview,
                         device: device,
@@ -290,6 +316,7 @@ export const updateConversationLastMessage = (/** @type {number} */ contactId, /
             }
             return conv;
         });
+        
     });
 };
 

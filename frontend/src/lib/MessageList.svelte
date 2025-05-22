@@ -3,7 +3,7 @@
   import { apiClient } from "../js/api";
   import { formatTimeRange, formatDate } from "../js/dateFormat";
   import {
-    currentConversation,
+    currentContact,
     conversationLoading,
     newMessageConcatChange,
     conactAddFinish,
@@ -42,12 +42,14 @@
   let isNewMessage = $state(false);
 
   const loadingDuration = 150;
+  let isComposing = $state(false);
+
   $effect(() => {
     if (!$conversationLoading) {
-      if ($currentConversation && $currentConversation.new === true) {
+      if ($currentContact && $currentContact.new === true) {
         showNewMessage = true;
         concatInput?.focus();
-      } else if ($currentConversation && !$currentConversation.new) {
+      } else if ($currentContact && !$currentContact.new) {
         showNewMessage = false;
       }
     }
@@ -58,24 +60,27 @@
       newMessageConcatChange(concatInputText);
     }
   });
-  $effect(() => {
-    prevConversationId = $currentConversation?.id || null;
 
+  $effect(() => {
+    if (!$currentContact) return;
+    
+    if ($currentContact.id === prevConversationId) return;
+    
+    prevConversationId = $currentContact.id;
     loading = true;
-    if ($currentConversation && !$currentConversation.new) {
+
+    if (!$currentContact.new) {
       apiClient
-        .getSmsPaginated(page, pageSize, prevConversationId)
+        .getSmsPaginated(page, pageSize, $currentContact.id)
         .then((res) => {
           isNewMessage = false;
           messages = res.data.data;
           loading = false;
           if (page === 1) {
-            markConversationAsRead(prevConversationId);
+            markConversationAsRead($currentContact.id);
           }
         });
-    }
-
-    if ($currentConversation && $currentConversation.new === true) {
+    } else {
       isNewMessage = false;
       messages = [];
       loading = false;
@@ -107,7 +112,6 @@
     isAddingContact = false;
   };
   const sendButtonHandleClick = () => {
-    // 如果处于新建联系人模式且联系人未填写，则不执行任何操作
     if (showNewMessage && !concatInputText.trim()) {
       return;
     }
@@ -238,17 +242,16 @@
       smoothScrollToBottom();
     }, 300);
 
-    console.log($currentConversation)
-
-    const concat = $currentConversation.concat.new === true
-      ? {
-          id: $currentConversation.concat.id,
-          name: concatInputText,
-        }
-      : $currentConversation.concat;
+    const concat =
+      $currentContact.new === true
+        ? {
+            id: $currentContact.id,
+            name: concatInputText,
+          }
+        : $currentContact;
 
     apiClient
-      .sendSms(device, concat, newMessage.message)
+      .sendSms(device, concat, newMessage.message, $currentContact.new ?? false)
       .then((res) => {
         isNewMessage = false;
         const messageId = res.data;
@@ -258,23 +261,6 @@
           }
           return msg;
         });
-
-        if ($currentConversation.contact.new === true) {
-          const index = $conversations.findIndex(
-            (conversation) =>
-              conversation.contact.id === $currentConversation.contact.id
-          );
-
-          if (index !== -1) {
-            conversations[index].contact.new = false;
-          }
-        }
-
-        updateConversationLastMessage(
-          $currentConversation.id,
-          newMessage.message,
-          device
-        );
       })
       .catch((err) => {
         isNewMessage = false;
@@ -285,6 +271,17 @@
           return msg;
         });
         console.error("发送消息失败:", err);
+      })
+      .finally(() => {
+
+        updateConversationLastMessage(
+          $currentContact.id,
+          newMessage.message,
+          device,
+          concatInputText || $currentContact.name,
+        );
+        showNewMessage = false;
+        concatInputText = "";
       });
   };
 
@@ -369,8 +366,8 @@
           bind:this={concatInput}
           onkeydown={concatInputHandleKeyDown}
         />
-      {:else if $currentConversation}
-        {$currentConversation.name}
+      {:else if $currentContact}
+        {$currentContact.name}
       {/if}
     {/if}
   </header>
@@ -464,8 +461,10 @@
       <input
         type="text"
         bind:value={sendMessageContent}
+        oncompositionstart={() => isComposing = true}
+        oncompositionend={() => isComposing = false}
         onkeydown={(e) => {
-          if (e.key === "Enter") {
+          if (e.key === "Enter" && !isComposing) {
             sendButtonHandleClick();
           }
         }}

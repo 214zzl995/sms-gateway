@@ -5,7 +5,7 @@
   import { fade } from "svelte/transition";
   import {
     conversations,
-    currentConversation,
+    currentContact,
     changeCurrentConversation,
     conversationLoading,
     deleteConversation,
@@ -50,6 +50,9 @@
     changeCurrentConversation(conversation.contact);
   }
   function createNewMessage() {
+    if ( $conversations[0].contact.new) {
+      return;
+    }
     apiClient.createContact(createNewContactName()).then((res) => {
       changeCurrentConversation({
         id: res.data,
@@ -63,6 +66,9 @@
    * @param {{ contact: { id: number; }; }} conversation
    */
   function deleteConversationHandleClick(conversation) {
+    if ($conversations.length === 1) {
+      return;
+    }
     apiClient.deleteContactById(conversation.contact.id).then(() => {
       deleteConversation(conversation.contact.id);
       changeCurrentConversation($conversations[0].contact);
@@ -105,10 +111,10 @@
             animate:flip={{ duration: 200, delay: 0 }}
             transition:fade={{ duration: 150 }}
             class="conversation-item flex flex-row items-center p-2 gap-2 cursor-pointer focus:outline-none focus:ring-0
-                        hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors duration-300 rounded-md relative"
-            class:bg-gray-200={$currentConversation?.id ===
+                        hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors duration-300 rounded-md relative "
+            class:bg-gray-200={$currentContact?.id ===
               conversation.contact.id}
-            class:dark:bg-zinc-700={$currentConversation?.id ===
+            class:dark:bg-zinc-700={$currentContact?.id ===
               conversation.contact.id}
             role="button"
             onclick={() => conversationHandleClick(conversation)}
@@ -140,7 +146,7 @@
               >
                 {conversation.contact.name}
               </p>
-              <p class="text-gray-400 text-xs line-clamp-2">
+              <p class="text-gray-400 text-xs line-clamp-2 min-h-[2.6em]">
                 <span
                   class="bg-gray-400 dark:bg-zinc-700 px-1 py-0.5 mr-0.5 rounded-md text-white"
                 >
