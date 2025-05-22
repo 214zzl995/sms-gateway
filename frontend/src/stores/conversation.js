@@ -8,7 +8,6 @@ export const currentConversation = writable(null);
 export const conversationLoading = writable(false);
 export const sseConnected = writable(false);
 
-// 定义前端用的 SmsStatus 枚举
 export const SmsStatus = {
     Unread: 0,
     Read: 1,
@@ -123,6 +122,21 @@ export const initConversation = () => {
     conversationLoading.set(true);
     connectSSE();
 
+    // 检查是否有待处理的联系人更新
+    const pendingUpdate = sessionStorage.getItem('pendingContactUpdate');
+    if (pendingUpdate) {
+        try {
+            const { contactId, contactName } = JSON.parse(pendingUpdate);
+            if (contactId && contactName) {
+                // 稍后会使用此信息更新当前会话
+                sessionStorage.removeItem('pendingContactUpdate');
+            }
+        } catch (e) {
+            console.error('Failed to parse pending contact update:', e);
+            sessionStorage.removeItem('pendingContactUpdate');
+        }
+    }
+
     apiClient.getConversation().then((res) => {
         getStorageValue("currentConversation").then((storageValue) => {
             if (storageValue !== null && storageValue !== undefined && res.data.find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === storageValue.id)) {
@@ -152,7 +166,6 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
     updateStorageValue("currentConversation", contact);
 
     if (contact.id === -1 && !get(conversations).find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === -1)) {
-        console.log("add new conversation");
         conversations.update((conversations) => {
             return [{
                 contact: {
@@ -253,7 +266,7 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
     });
 };
 
-export const updateConversationLastMessage = (/** @type {number} */ contactId, /** @type {string} */ message) => {
+export const updateConversationLastMessage = (/** @type {number} */ contactId, /** @type {string} */ message, device) => {
     if (contactId === undefined || contactId === null || contactId === -1) {
         return;
     }
@@ -265,6 +278,7 @@ export const updateConversationLastMessage = (/** @type {number} */ contactId, /
                     ...conv,
                     sms_preview: {
                         ...conv.sms_preview,
+                        device: device,
                         message: message,
                         timestamp: new Date().toISOString(),
                         status: SmsStatus.Read

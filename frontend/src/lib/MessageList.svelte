@@ -270,37 +270,15 @@
             currentConversation.set(existingConversation.contact);
             deleteConversation(-1);
           } else if (messageId.contact_id) {
-            const newContact = {
-              id: messageId.contact_id,
-              name: contact.name,
-            };
-
-            currentConversation.set(newContact);
-
-            conversations.update((convs) => {
-              return convs.map((conv) => {
-                if (conv.contact.id === -1) {
-                  return {
-                    contact: newContact,
-                    sms_preview: {
-                      message: newMessage.message,
-                      status: SmsStatus.Read,
-                      timestamp: new Date().toISOString(),
-                    },
-                  };
-                }
-                return conv;
-              });
-            });
+            
           }
         }
 
-        if ($currentConversation && $currentConversation.id !== -1) {
-          updateConversationLastMessage(
-            $currentConversation.id,
-            newMessage.message
-          );
-        }
+        updateConversationLastMessage(
+          $currentConversation.id,
+          newMessage.message,
+          device
+        );
       })
       .catch((err) => {
         isNewMessage = false;
