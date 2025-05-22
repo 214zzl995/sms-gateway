@@ -318,6 +318,34 @@ impl Contact {
 
         Ok(contact_id)
     }
+    
+    pub async fn insert_or_get_id(name: &str) -> Result<i64> {
+        let pool = get_pool()?;
+        
+        let existing_id = sqlx::query_scalar::<_, Option<i64>>(
+            r#"
+            SELECT id FROM contacts WHERE name = ?
+            "#,
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await;
+        
+        if let Ok(Some(id)) = existing_id {
+            return Ok(id);
+        }
+        
+        let contact_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            INSERT INTO contacts (name) VALUES (?) RETURNING id
+            "#,
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await?;
+        
+        Ok(contact_id)
+    }
 }
 
 impl Conversation {

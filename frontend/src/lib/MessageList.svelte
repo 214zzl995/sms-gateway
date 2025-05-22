@@ -1,8 +1,7 @@
 <script>
   import Icon from "@iconify/svelte";
   import { apiClient } from "../js/api";
-  import { formatTimeRange, formatDate } from "../js/dateFormat";
-  import {
+  import { formatTimeRange, formatDate } from "../js/dateFormat";  import {
     currentConversation,
     conversationLoading,
     newMessageConcatChange,
@@ -10,6 +9,7 @@
     markConversationAsRead,
     SmsStatus,
     updateConversationLastMessage,
+    conversations,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
   import { onDestroy, onMount } from "svelte";
@@ -106,11 +106,16 @@
     concatInputText = "";
     isAddingContact = false;
   };
-
   const sendButtonHandleClick = () => {
+    // 如果处于新建联系人模式且联系人未填写，则不执行任何操作
+    if (showNewMessage && !concatInputText.trim()) {
+      return;
+    }
+
     if ($devices.length > 1) {
       showDeviceDialog = true;
     } else {
+      console.log($devices);
       sendMessage($devices[0].name);
     }
   };
@@ -205,7 +210,6 @@
       });
     }
   }
-
   const sendMessage = (/** @type {String} */ device) => {
     if (sendMessageContent.trim() === "") {
       return;
@@ -232,9 +236,16 @@
     // Start smooth scroll animation
     setTimeout(() => {
       smoothScrollToBottom();
-    }, 300);
+    }, 300);    
+    const isNewContactMode = showNewMessage && concatInputText.trim();
+    
+    // 如果是新建联系人模式，创建带有联系人名称的conversation对象
+    const contact = $currentConversation.id === -1 && concatInputText.trim() 
+      ? { id: -1, name: concatInputText.trim() } 
+      : $currentConversation;
+    
     apiClient
-      .sendSms(device, $currentConversation, newMessage.message)
+      .sendSms(device, contact, newMessage.message)
       .then((res) => {
         isNewMessage = false;
         const messageId = res.data;
@@ -245,12 +256,22 @@
           return msg;
         });
 
+        if (isNewContactMode) {
+          const existingContactName = concatInputText.trim();
+          const existingConversation = $conversations.find(
+            (item) => item.contact.name === existingContactName && item.contact.id !== -1
+          );
+          
+          if (existingConversation) {
+            currentConversation.set(existingConversation.contact);
+          }
+        }
+        
         if ($currentConversation && $currentConversation.id !== -1) {
           updateConversationLastMessage(
             $currentConversation.id,
             newMessage.message
-          );
-        }
+          );        }
       })
       .catch((err) => {
         isNewMessage = false;
@@ -430,12 +451,12 @@
       </div>
     {/if}
   </div>
-
   <div
     class="h-20 flex items-center justify-center bg-white/70 dark:bg-zinc-900/70 z-10 backdrop-blur-md absolute bottom-0 left-0 right-0"
   >
     <div
       class="flex items-center justify-between rounded-full p-2 w-4/6 bg-gray-100 dark:bg-zinc-800 relative"
+      class:opacity-50={showNewMessage && !concatInputText.trim()}
     >
       <input
         type="text"
@@ -445,6 +466,10 @@
             sendButtonHandleClick();
           }
         }}
+        disabled={showNewMessage && !concatInputText.trim()}
+        placeholder={showNewMessage && !concatInputText.trim()
+          ? "请先输入联系人"
+          : ""}
         class="ml-2 mr-2 bg-transparent focus:outline-none focus:ring-0 flex-1"
       />
 
@@ -473,10 +498,13 @@
           </ul>
         </div>
       {/if}
-
       <button
         class="rounded-full flex items-center justify-center hover:text-blue-500 transition-colors duration-300 mr-2"
-        onclick={sendButtonHandleClick}
+        class:text-gray-400={showNewMessage && !concatInputText.trim()}
+        class:hover:text-gray-400={showNewMessage && !concatInputText.trim()}
+        class:cursor-not-allowed={showNewMessage && !concatInputText.trim()}
+        onclick={!(showNewMessage && !concatInputText.trim()) &&
+          sendButtonHandleClick}
       >
         <Icon icon="mage:direction-up-right-2-fill" class="w-6 h-6" />
       </button>

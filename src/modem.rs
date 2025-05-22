@@ -167,16 +167,26 @@ impl Modem {
                 format!("Incomplete SMS response: {}", final_response),
             )))
         }
-    }
-
-    /// Send SMS message with enhanced response handling
+    }    /// Send SMS message with enhanced response handling
     pub async fn send_sms_text(&self, contact: &Contact, message: &str) -> anyhow::Result<i64> {
 
         info!("Sending SMS to {}: {}", contact.name, message);
         
+        let contact_id = if contact.id == -1 {
+            match crate::db::Contact::insert_or_get_id(&contact.name).await {
+                Ok(id) => id,
+                Err(err) => {
+                    error!("Failed to insert or get contact ID: {}", err);
+                    return Err(anyhow::anyhow!(err));
+                }
+            }
+        } else {
+            contact.id
+        };
+        
         let sms = SMS {
             id: 0,
-            contact_id: contact.id,
+            contact_id,
             timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
             message: message.to_string(),
             device: self.name.clone(),
@@ -215,15 +225,26 @@ impl Modem {
                 Err(err)
             }
         }
-    }
-
-    /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
+    }    /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
     pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<i64> {
         info!("Sending SMS via PDU to {}: {}", contact.name, message);
 
+        // 检查contact.id是否为-1，如果是则先通过insert_or_get_id获取或插入联系人ID
+        let contact_id = if contact.id == -1 {
+            match crate::db::Contact::insert_or_get_id(&contact.name).await {
+                Ok(id) => id,
+                Err(err) => {
+                    error!("Failed to insert or get contact ID: {}", err);
+                    return Err(anyhow::anyhow!(err));
+                }
+            }
+        } else {
+            contact.id
+        };
+
         let sms = SMS {
             id: 0,
-            contact_id: contact.id,
+            contact_id,
             timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
             message: message.to_string(),
             device: self.name.clone(),
