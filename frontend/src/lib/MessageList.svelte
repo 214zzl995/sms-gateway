@@ -42,13 +42,12 @@
   let isNewMessage = $state(false);
 
   const loadingDuration = 150;
-
   $effect(() => {
     if (!$conversationLoading) {
-      if ($currentConversation && $currentConversation.id === -1) {
+      if ($currentConversation && $currentConversation.new === true) {
         showNewMessage = true;
         concatInput?.focus();
-      } else if ($currentConversation && $currentConversation.id !== -1) {
+      } else if ($currentConversation && !$currentConversation.new) {
         showNewMessage = false;
       }
     }
@@ -59,12 +58,11 @@
       newMessageConcatChange(concatInputText);
     }
   });
-
   $effect(() => {
     prevConversationId = $currentConversation?.id || null;
 
     loading = true;
-    if ($currentConversation && prevConversationId !== -1) {
+    if ($currentConversation && !$currentConversation.new) {
       apiClient
         .getSmsPaginated(page, pageSize, prevConversationId)
         .then((res) => {
@@ -77,7 +75,7 @@
         });
     }
 
-    if ($currentConversation && $currentConversation.id === -1) {
+    if ($currentConversation && $currentConversation.new === true) {
       isNewMessage = false;
       messages = [];
       loading = false;
@@ -239,16 +237,9 @@
     setTimeout(() => {
       smoothScrollToBottom();
     }, 300);
-    const isNewContactMode = showNewMessage && concatInputText.trim();
-
-    // 如果是新建联系人模式，创建带有联系人名称的conversation对象
-    const contact =
-      $currentConversation.id === -1 && concatInputText.trim()
-        ? { id: -1, name: concatInputText.trim() }
-        : $currentConversation;
 
     apiClient
-      .sendSms(device, contact, newMessage.message)
+      .sendSms(device, $currentConversation, newMessage.message)
       .then((res) => {
         isNewMessage = false;
         const messageId = res.data;
@@ -259,18 +250,14 @@
           return msg;
         });
 
-        if (isNewContactMode) {
-          const existingContactName = concatInputText.trim();
-          const existingConversation = $conversations.find(
-            (item) =>
-              item.contact.name === existingContactName &&
-              item.contact.id !== -1
+        if ($currentConversation.contact.new === true) {
+          const index = $conversations.findIndex(
+            (conversation) =>
+              conversation.contact.id === $currentConversation.contact.id
           );
-          if (existingConversation) {
-            currentConversation.set(existingConversation.contact);
-            deleteConversation(-1);
-          } else if (messageId.contact_id) {
-            
+
+          if (index !== -1) {
+            conversations[index].contact.new = false;
           }
         }
 

@@ -3,7 +3,7 @@ use std::{convert::Infallible, sync::Arc, time::Duration};
 use axum::{
     extract::{Path, Query, State},
     response::{sse::Event, IntoResponse, Response, Sse},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use futures_util::StreamExt;
@@ -57,6 +57,7 @@ pub async fn run_api(
         )
         .route("/contacts", get(get_contacts))
         .route("/contacts", post(create_contact))
+        .route("/contacts/{id}", delete(delete_contact_by_id))
         .route("/conversation", get(get_conversation))
         .route("/conversations/{id}/unread", post(get_conversation_unread))
         .layer(axum::middleware::from_fn_with_state(
@@ -217,6 +218,14 @@ async fn get_device_sms_count(Path(name): Path<String>) -> Response {
 async fn create_contact(Json(payload): Json<String>) -> Response {
     match Contact::insert(&payload).await {
         Ok(id) => (StatusCode::OK, Json(id)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+async fn delete_contact_by_id(Path(id): Path<i64>) -> Response {
+    match Contact::delete_by_id(id).await {
+        Ok(true) => (StatusCode::OK).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "Contact not found").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

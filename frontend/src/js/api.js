@@ -75,6 +75,24 @@ class ApiClient {
     async markConversationAsReadAndGetLatest(contactId) {
         return FetchApi.post(`/api/conversations/${contactId}/unread`);
     }
+
+    /**
+     * 创建新联系人
+     * @param {string} name - 联系人名称
+     * @returns {Promise<any>} - 返回新创建联系人的ID
+     */
+    async createContact(name) {
+        return FetchApi.post('/api/contacts', name);
+    }
+
+    /**
+     * 根据ID删除联系人
+     * @param {number} id - 联系人ID
+     * @returns {Promise<any>} - 返回删除操作的结果
+     */
+    async deleteContactById(id) {
+        return FetchApi.delete(`/api/contacts/${id}`);
+    }
 }
 
 // Export as a singleton

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
+use log;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
@@ -16,7 +17,7 @@ static POOL: OnceLock<SqlitePool> = OnceLock::new();
 /// Represents a single SMS message
 #[derive(Debug, FromRow, Deserialize, Serialize, Default)]
 pub struct SMS {
-    pub id: i64, 
+    pub id: i64,
     pub contact_id: i64,
     pub timestamp: NaiveDateTime,
     pub message: String,
@@ -27,7 +28,7 @@ pub struct SMS {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, sqlx::Type, Default)]
 #[repr(i32)]
-#[serde(into = "i32", from = "i32")] 
+#[serde(into = "i32", from = "i32")]
 pub enum SmsStatus {
     #[default]
     Unread = 0,
@@ -266,7 +267,7 @@ impl SMS {
 
         Ok(())
     }
-    
+
     pub async fn update_status_by_id(id: i64, status: SmsStatus) -> Result<()> {
         let pool = get_pool()?;
         sqlx::query(
@@ -318,10 +319,10 @@ impl Contact {
 
         Ok(contact_id)
     }
-    
+
     pub async fn insert_or_get_id(name: &str) -> Result<i64> {
         let pool = get_pool()?;
-        
+
         let existing_id = sqlx::query_scalar::<_, Option<i64>>(
             r#"
             SELECT id FROM contacts WHERE name = ?
@@ -330,11 +331,11 @@ impl Contact {
         .bind(name)
         .fetch_one(pool)
         .await;
-        
+
         if let Ok(Some(id)) = existing_id {
             return Ok(id);
         }
-        
+
         let contact_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO contacts (name) VALUES (?) RETURNING id
@@ -343,8 +344,47 @@ impl Contact {
         .bind(name)
         .fetch_one(pool)
         .await?;
-        
+
         Ok(contact_id)
+    }
+
+    pub async fn delete_contacts_without_messages() -> Result<u64> {
+        let pool = get_pool()?;
+
+        let affected_rows = sqlx::query(
+            r#"
+            DELETE FROM contacts 
+            WHERE id NOT IN (SELECT DISTINCT contact_id FROM sms)
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(affected_rows.rows_affected())
+    }
+
+    pub async fn delete_by_id(id: i64) -> Result<bool> {
+        let pool = get_pool()?;
+
+        sqlx::query(
+            r#"
+            DELETE FROM sms WHERE contact_id = ?
+            "#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        let result = sqlx::query(
+            r#"
+            DELETE FROM contacts WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 }
 
@@ -481,7 +521,11 @@ impl ModemSMS {
         .bind(&self.message)
         .bind(&self.device)
         .bind(&self.send)
-        .bind(if self.send { SmsStatus::Read as i32 } else { SmsStatus::Unread as i32 })
+        .bind(if self.send {
+            SmsStatus::Read as i32
+        } else {
+            SmsStatus::Unread as i32
+        })
         .fetch_one(&mut **transaction)
         .await?;
 
@@ -544,7 +588,11 @@ impl ModemSMS {
                     .push_bind(&sms.message)
                     .push_bind(&sms.device)
                     .push_bind(&sms.send)
-                    .push_bind(if sms.send { SmsStatus::Read as i32 } else { SmsStatus::Unread as i32 });
+                    .push_bind(if sms.send {
+                        SmsStatus::Read as i32
+                    } else {
+                        SmsStatus::Unread as i32
+                    });
             });
 
             query_builder.build().execute(&mut *transaction).await?;
@@ -573,6 +621,17 @@ pub async fn db_init() -> Result<()> {
 
     POOL.set(pool)
         .map_err(|_| anyhow::anyhow!("Failed to initialize database connection pool"))?;
+
+    tokio::spawn(async {
+        match Contact::delete_contacts_without_messages().await {
+            Ok(count) => {
+                log::info!("{} contacts without messages have been cleaned up", count);
+            }
+            Err(e) => {
+                log::error!("Failed to clean up contacts without messages: {}", e);
+            }
+        }
+    });
 
     Ok(())
 }

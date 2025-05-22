@@ -78,7 +78,7 @@ const connectSSE = () => {
         const currentConvId = get(currentConversation)?.id;
 
         const updatedCurrentConv = newConversations.find(conv => conv.contact.id === currentConvId);
-        
+
         if (updatedCurrentConv && updatedCurrentConv.sms_preview.status === SmsStatus.Unread && currentConvId !== -1) {
 
             apiClient.markConversationAsReadAndGetLatest(currentConvId).then(res => {
@@ -146,9 +146,12 @@ export const initConversation = () => {
                     updateStorageValue("currentConversation", res.data[0].contact);
                     currentConversation.set(res.data[0].contact);
                 } else {
-                    currentConversation.set({
-                        id: -1,
-                        name: "新信息",
+                    apiClient.createContact(createNewContactName()).then((res) => {
+                        currentConversation.set({
+                            id: res.data,
+                            name: "新信息",
+                            new: true,
+                        });
                     });
                 }
             }
@@ -165,12 +168,13 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
     }
     updateStorageValue("currentConversation", contact);
 
-    if (contact.id === -1 && !get(conversations).find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === -1)) {
+    if (contact.new === true && !get(conversations).find((/** @type {{ contact: { new: any; }; }} */ item) => item.contact.new === true)) {
         conversations.update((conversations) => {
             return [{
                 contact: {
-                    id: -1,
+                    id: contact.id,
                     name: "新信息",
+                    new: true,
                 },
                 sms_preview: {
                     message: "",
@@ -181,7 +185,7 @@ export const changeCurrentConversation = (/** @type {any} */ contact) => {
         });
     }
     currentConversation.set(contact);
-    if (contact.id === -1) {
+    if (contact.new === true) {
         scrollToConversation(contact.id);
     }
 }
@@ -194,15 +198,16 @@ export const newMessageConcatChange = (/** @type {string} */ conactName) => {
     conversations.update((conversations) => {
         return [{
             contact: {
-                id: -1,
+                id: get(currentConversation)?.id || 0,
                 name: conactName,
+                new: true,
             },
             sms_preview: {
                 message: "",
                 status: SmsStatus.Read,
                 timestamp: new Date().toISOString(),
             },
-        }, ...conversations.filter((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id !== -1)];
+        }, ...conversations.filter((/** @type {{ contact: { new: any; }; }} */ item) => !item.contact.new)];
     });
 }
 
@@ -235,18 +240,18 @@ export const scrollToConversation = (/** @type {number} */ id) => {
 }
 
 export const conactAddFinish = (/** @type {string} */ name) => {
-    const conversation = get(conversations).find((/** @type {{ contact: { id: any; name: any; }; }} */ item) => item.contact.name === name && item.contact.id !== -1);
+    const conversation = get(conversations).find((/** @type {{ contact: { id: any; name: any; new: any; }; }} */ item) => item.contact.name === name && !item.contact.new);
     if (conversation) {
         currentConversation.set(conversation.contact);
         scrollToConversation(conversation.contact.id);
         conversations.update((conversations) => {
-            return conversations.filter((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id !== -1);
+            return conversations.filter((/** @type {{ contact: { new: any; }; }} */ item) => !item.contact.new);
         });
     }
 }
 
 export const markConversationAsRead = (/** @type {number} */ contactId) => {
-    if (contactId === undefined || contactId === null || contactId === -1) {
+    if (contactId === undefined || contactId === null) {
         return;
     }
 
@@ -267,7 +272,7 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
 };
 
 export const updateConversationLastMessage = (/** @type {number} */ contactId, /** @type {string} */ message, device) => {
-    if (contactId === undefined || contactId === null || contactId === -1) {
+    if (contactId === undefined || contactId === null) {
         return;
     }
 
@@ -289,5 +294,12 @@ export const updateConversationLastMessage = (/** @type {number} */ contactId, /
         });
     });
 };
+
+export const createNewContactName = () => {
+    const timestamp = new Date().getTime();
+    const randomPart = Math.random().toString(36).substring(2, 8);
+    const randomName = `新信息 ${timestamp}-${randomPart}`;
+    return randomName;
+}
 
 
