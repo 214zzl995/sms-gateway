@@ -32,9 +32,9 @@
 
   let showLoading = $state(true);
   let loadingTimer = null;
-  
+
   // Track conversation ID changes to control animations
-  let prevConversationId = $state(null);
+  let prevConversationId = null;
   let messageContainer = $state(null);
   let isNewMessage = $state(false);
 
@@ -58,18 +58,18 @@
   });
 
   $effect(() => {
-    // Track if conversation changes
-    const isConversationChange =
-      prevConversationId !== null &&
-      prevConversationId !== ($currentConversation?.id || null);
     prevConversationId = $currentConversation?.id || null;
 
     loading = true;
     if ($currentConversation && prevConversationId !== -1) {
+
       apiClient
-        .getSmsPaginated(page, pageSize, prevConversationId)
+        .getSmsPaginated(
+          page,
+          pageSize,
+          prevConversationId
+        )
         .then((res) => {
-          // Set messages without triggering animations when switching conversations
           isNewMessage = false;
           messages = res.data.data;
           loading = false;
