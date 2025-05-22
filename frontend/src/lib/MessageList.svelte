@@ -1,7 +1,8 @@
 <script>
   import Icon from "@iconify/svelte";
   import { apiClient } from "../js/api";
-  import { formatTimeRange, formatDate } from "../js/dateFormat";  import {
+  import { formatTimeRange, formatDate } from "../js/dateFormat";
+  import {
     currentConversation,
     conversationLoading,
     newMessageConcatChange,
@@ -10,6 +11,7 @@
     SmsStatus,
     updateConversationLastMessage,
     conversations,
+    deleteConversation,
   } from "../stores/conversation";
   import { fade } from "svelte/transition";
   import { onDestroy, onMount } from "svelte";
@@ -236,14 +238,15 @@
     // Start smooth scroll animation
     setTimeout(() => {
       smoothScrollToBottom();
-    }, 300);    
+    }, 300);
     const isNewContactMode = showNewMessage && concatInputText.trim();
-    
+
     // 如果是新建联系人模式，创建带有联系人名称的conversation对象
-    const contact = $currentConversation.id === -1 && concatInputText.trim() 
-      ? { id: -1, name: concatInputText.trim() } 
-      : $currentConversation;
-    
+    const contact =
+      $currentConversation.id === -1 && concatInputText.trim()
+        ? { id: -1, name: concatInputText.trim() }
+        : $currentConversation;
+
     apiClient
       .sendSms(device, contact, newMessage.message)
       .then((res) => {
@@ -251,7 +254,7 @@
         const messageId = res.data;
         messages = messages.map((msg) => {
           if (msg.id === -1 && msg.message === newMessage.message) {
-            return { ...msg, status: SmsStatus.Read, id: messageId };
+            return { ...msg, status: SmsStatus.Read, id: messageId.sms_id };
           }
           return msg;
         });
@@ -259,19 +262,45 @@
         if (isNewContactMode) {
           const existingContactName = concatInputText.trim();
           const existingConversation = $conversations.find(
-            (item) => item.contact.name === existingContactName && item.contact.id !== -1
+            (item) =>
+              item.contact.name === existingContactName &&
+              item.contact.id !== -1
           );
-          
           if (existingConversation) {
             currentConversation.set(existingConversation.contact);
+            deleteConversation(-1);
+          } else if (messageId.contact_id) {
+            const newContact = {
+              id: messageId.contact_id,
+              name: contact.name,
+            };
+
+            currentConversation.set(newContact);
+
+            conversations.update((convs) => {
+              return convs.map((conv) => {
+                if (conv.contact.id === -1) {
+                  return {
+                    contact: newContact,
+                    sms_preview: {
+                      message: newMessage.message,
+                      status: SmsStatus.Read,
+                      timestamp: new Date().toISOString(),
+                    },
+                  };
+                }
+                return conv;
+              });
+            });
           }
         }
-        
+
         if ($currentConversation && $currentConversation.id !== -1) {
           updateConversationLastMessage(
             $currentConversation.id,
             newMessage.message
-          );        }
+          );
+        }
       })
       .catch((err) => {
         isNewMessage = false;

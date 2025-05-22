@@ -128,7 +128,11 @@ async fn send_sms(
     let modem = devices.get(&payload.modem_id);
     match modem {
         Some(m) => match m.send_sms_pdu(&payload.contact, &payload.message).await {
-            Ok(id) => (StatusCode::OK, Json(id)).into_response(),
+            Ok((sms_id, contact_id)) => (
+                StatusCode::OK,
+                Json(json!({ "sms_id": sms_id, "contact_id": contact_id })),
+            )
+                .into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Send failed: {}", e),

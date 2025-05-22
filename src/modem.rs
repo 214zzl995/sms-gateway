@@ -167,11 +167,15 @@ impl Modem {
                 format!("Incomplete SMS response: {}", final_response),
             )))
         }
-    }    /// Send SMS message with enhanced response handling
-    pub async fn send_sms_text(&self, contact: &Contact, message: &str) -> anyhow::Result<i64> {
-
+    }
+    /// Send SMS message with enhanced response handling
+    pub async fn send_sms_text(
+        &self,
+        contact: &Contact,
+        message: &str,
+    ) -> anyhow::Result<(i64, i64)> {
         info!("Sending SMS to {}: {}", contact.name, message);
-        
+
         let contact_id = if contact.id == -1 {
             match crate::db::Contact::insert_or_get_id(&contact.name).await {
                 Ok(id) => id,
@@ -183,7 +187,7 @@ impl Modem {
         } else {
             contact.id
         };
-        
+
         let sms = SMS {
             id: 0,
             contact_id,
@@ -213,7 +217,7 @@ impl Modem {
                 {
                     error!("Failed to update SMS status to Read: {}", err);
                 }
-                Ok(sms_id)
+                Ok((sms_id, contact_id))
             }
             Err(err) => {
                 if let Err(update_err) =
@@ -225,8 +229,9 @@ impl Modem {
                 Err(err)
             }
         }
-    }    /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
-    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<i64> {
+    }
+    /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
+    pub async fn send_sms_pdu(&self, contact: &Contact, message: &str) -> anyhow::Result<(i64, i64)> {
         info!("Sending SMS via PDU to {}: {}", contact.name, message);
 
         // 检查contact.id是否为-1，如果是则先通过insert_or_get_id获取或插入联系人ID
@@ -277,7 +282,7 @@ impl Modem {
                         {
                             error!("Failed to update SMS status to Read: {}", err);
                         }
-                        Ok(sms_id)
+                        Ok((sms_id, contact_id))
                     }
                     Err(err) => {
                         if let Err(update_err) =
