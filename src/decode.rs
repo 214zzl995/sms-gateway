@@ -181,9 +181,80 @@ fn parse_sender(pdu: &[u8], pos: &mut usize) -> String {
 
 fn decode_content(bytes: &[u8], dcs: u8) -> String {
     match dcs {
-        0x08 => decode_ucs2(bytes),
-        _ => bytes.iter().map(|b| format!("{:02X}", b)).collect(),
+        0x00 => decode_gsm7bit(bytes),  // GSM 7-bit 默认字母表
+        0x08 => decode_ucs2(bytes),     // UCS2 编码
+        _ => bytes                      // 其他编码类型，保持原样
+            .iter()
+            .map(|b| *b as char)
+            .collect()
     }
+}
+
+fn decode_gsm7bit(bytes: &[u8]) -> String {
+    let mut result = String::new();
+    let mut bit_buffer: u16 = 0;
+    let mut bits_in_buffer = 0;
+
+    for &byte in bytes {
+        bit_buffer |= (byte as u16) << bits_in_buffer;
+        bits_in_buffer += 8;
+
+        while bits_in_buffer >= 7 {
+            let septect = (bit_buffer & 0x7F) as u8;
+            bit_buffer >>= 7;
+            bits_in_buffer -= 7;
+
+            // GSM 7-bit 默认字符集映射
+            let ch = match septect {
+                0x00 => '@',
+                0x01 => '£',
+                0x02 => '$',
+                0x03 => '¥',
+                0x04 => 'è',
+                0x05 => 'é',
+                0x06 => 'ù',
+                0x07 => 'ì',
+                0x08 => 'ò',
+                0x09 => 'Ç',
+                0x0A => '\n',
+                0x0B => 'Ø',
+                0x0C => 'ø',
+                0x0D => '\r',
+                0x0E => 'Å',
+                0x0F => 'å',
+                0x10 => '\u{0394}', // Δ
+                0x11 => '_',
+                0x12 => '\u{03A6}', // Φ
+                0x13 => '\u{0393}', // Γ
+                0x14 => '\u{039B}', // Λ
+                0x15 => '\u{03A9}', // Ω
+                0x16 => '\u{03A0}', // Π
+                0x17 => '\u{03A8}', // Ψ
+                0x18 => '\u{03A3}', // Σ
+                0x19 => '\u{0398}', // Θ
+                0x1A => '\u{039E}', // Ξ
+                0x1B => '\u{001B}', // escape for extended table
+                0x1C => 'Æ',
+                0x1D => 'æ',
+                0x1E => 'ß',
+                0x1F => 'É',
+                0x20 => ' ',
+                0x21..=0x7F => septect as char,
+                _ => '?'
+            };
+            result.push(ch);
+        }
+    }
+
+    // Handle any remaining bits if necessary
+    if bits_in_buffer > 0 && (bit_buffer & 0x7F) != 0 {
+        let septect = (bit_buffer & 0x7F) as u8;
+        if septect <= 0x7F {
+            result.push(septect as char);
+        }
+    }
+
+    result.trim_end_matches('\0').to_string()
 }
 
 fn decode_ucs2(bytes: &[u8]) -> String {
