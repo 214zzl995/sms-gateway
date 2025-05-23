@@ -4,8 +4,20 @@ server_port = 8951
 username = "admin"
 password = "password778"
 read_sms_frequency = 60
+webhooks_max_concurrent = 10
 
 [devices.default]
 com_port = "/dev/ttyUSB1"
 baud_rate = 115200
+
+[[settings.webhooks]]
+url = "http://example.com/webhook"
+method = "POST"
+headers = { "Content-Type" = "application/json" }
+body = """
+{
+    "phone": "${contact}",
+    "message": "${message}"
+}
+"""
 
