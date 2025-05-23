@@ -2,6 +2,7 @@ import { get, writable } from 'svelte/store';
 import { apiClient } from '../js/api';
 import { getStorageValue, updateStorageValue } from '../js/storage';
 import { EventSourcePolyfill } from 'event-source-polyfill';
+import { generateUUID } from '../js/uuid';
 
 export const conversations = writable([]);
 export const currentContact = writable(null);
@@ -139,17 +140,30 @@ export const initConversation = () => {
         getStorageValue("currentConversation").then((storageValue) => {
             if (storageValue !== null && storageValue !== undefined && res.data.find((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id === storageValue.id)) {
                 currentContact.set(storageValue);
-            } else {
-                if (res.data.length > 0) {
+            } else {                if (res.data.length > 0) {
                     updateStorageValue("currentConversation", res.data[0].contact);
-                    currentContact.set(res.data[0].contact);
-                } else {
-                    apiClient.createContact(createNewContactName()).then((res) => {
-                        currentContact.set({
-                            id: res.data,
-                            name: "新信息",
-                            new: true,
-                        });
+                    currentContact.set(res.data[0].contact);                } else {
+                    // 使用前端生成的 UUID，避免立即创建联系人
+                    const uuid = generateUUID();
+                    const newContact = {
+                        id: uuid,
+                        name: "新信息",
+                        new: true,
+                    };
+                    currentContact.set(newContact);
+                    updateStorageValue("currentConversation", newContact);
+                    
+                    // 添加到对话列表
+                    conversations.update(currentConversations => {
+                        return [{
+                            contact: newContact,
+                            sms_preview: {
+                                message: "",
+                                status: SmsStatus.Read,
+                                timestamp: new Date().toISOString(),
+                                device: ""
+                            }
+                        }, ...currentConversations];
                     });
                 }
             }
@@ -209,13 +223,13 @@ export const newMessageConcatChange = (/** @type {string} */ conactName) => {
     });
 }
 
-export const deleteConversation = (/** @type {number} */ id) => {
+export const deleteConversation = (/** @type {string} */ id) => {
     conversations.update((conversations) => {
         return conversations.filter((/** @type {{ contact: { id: any; }; }} */ item) => item.contact.id !== id);
     });
 }
 
-export const scrollToConversation = (/** @type {number} */ id) => {
+export const scrollToConversation = (/** @type {string} */ id) => {
     setTimeout(() => {
         const conversationElement = document.getElementById(`conversation-${id}`);
         if (conversationElement) {
@@ -248,7 +262,7 @@ export const conactAddFinish = (/** @type {string} */ name) => {
     }
 }
 
-export const markConversationAsRead = (/** @type {number} */ contactId) => {
+export const markConversationAsRead = (/** @type {string} */ contactId) => {
     if (contactId === undefined || contactId === null) {
         return;
     }
@@ -271,14 +285,14 @@ export const markConversationAsRead = (/** @type {number} */ contactId) => {
 
 /**
  * 更新会话的最后一条消息信息
- * @param {number} contactId - 联系人ID
+ * @param {string} contactId - 联系人ID
  * @param {string} message - 最新消息内容
  * @param {Object} device - 设备信息对象
  * @param {string} contactName - 联系人名称
  * @returns {void}
  */
 export const updateConversationLastMessage = (
-    /** @type {number} */ contactId,
+    /** @type {string} */ contactId,
     /** @type {string} */ message,
     /** @type {any} */ device,
     /** @type {string} */ contactName,

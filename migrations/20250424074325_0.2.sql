@@ -1,6 +1,6 @@
 create table contacts
 (
-    id   integer primary key autoincrement,
+    id   text primary key,
     name text
 );
 
@@ -13,7 +13,7 @@ create table sms
     timestamp  timestamp not null,
     message    text      not null,
     device     text      not null,
-    contact_id integer   not null,
+    contact_id text      not null,
     send       boolean   not null default 0,
     status     integer   not null default 0
 );

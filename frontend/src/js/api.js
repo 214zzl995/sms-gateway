@@ -34,9 +34,7 @@ class ApiClient {
         };
 
         return FetchApi.get('/api/sms', params, undefined, { signal });
-    }
-
-    /**
+    }    /**
      * Send an SMS
      * @param {string} modemId - Modem ID
      * @param {object} contact - Target phone number
@@ -44,7 +42,7 @@ class ApiClient {
      * @param {boolean} new_message - Whether to send a new message
      */
     async sendSms(modemId, contact, message, new_message) {
-        const payload = { modem_id: modemId, contact, message ,new: new_message};
+        const payload = { modem_id: modemId, contact, message, new: new_message};
         return FetchApi.post('/api/sms', payload)
     }
 
@@ -75,24 +73,6 @@ class ApiClient {
 
     async markConversationAsReadAndGetLatest(contactId) {
         return FetchApi.post(`/api/conversations/${contactId}/unread`);
-    }
-
-    /**
-     * 创建新联系人
-     * @param {string} name - 联系人名称
-     * @returns {Promise<any>} - 返回新创建联系人的ID
-     */
-    async createContact(name) {
-        return FetchApi.post('/api/contacts', name);
-    }
-
-    /**
-     * 根据ID删除联系人
-     * @param {number} id - 联系人ID
-     * @returns {Promise<any>} - 返回删除操作的结果
-     */
-    async deleteContactById(id) {
-        return FetchApi.delete(`/api/contacts/${id}`);
     }
 }
 

@@ -63,9 +63,9 @@
 
   $effect(() => {
     if (!$currentContact) return;
-    
+
     if ($currentContact.id === prevConversationId) return;
-    
+
     prevConversationId = $currentContact.id;
     loading = true;
 
@@ -241,7 +241,7 @@
     setTimeout(() => {
       smoothScrollToBottom();
     }, 300);
-
+    
     const concat =
       $currentContact.new === true
         ? {
@@ -273,12 +273,11 @@
         console.error("发送消息失败:", err);
       })
       .finally(() => {
-
         updateConversationLastMessage(
           $currentContact.id,
           newMessage.message,
           device,
-          concatInputText || $currentContact.name,
+          concatInputText || $currentContact.name
         );
         showNewMessage = false;
         concatInputText = "";
@@ -461,8 +460,8 @@
       <input
         type="text"
         bind:value={sendMessageContent}
-        oncompositionstart={() => isComposing = true}
-        oncompositionend={() => isComposing = false}
+        oncompositionstart={() => (isComposing = true)}
+        oncompositionend={() => (isComposing = false)}
         onkeydown={(e) => {
           if (e.key === "Enter" && !isComposing) {
             sendButtonHandleClick();

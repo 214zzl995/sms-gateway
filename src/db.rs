@@ -9,6 +9,7 @@ use sqlx::{migrate, Sqlite, Transaction};
 use sqlx::{FromRow, QueryBuilder};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
+use uuid::Uuid;
 
 const MAX_BATCH_SIZE: usize = 500;
 
@@ -18,7 +19,7 @@ static POOL: OnceLock<SqlitePool> = OnceLock::new();
 #[derive(Debug, FromRow, Deserialize, Serialize, Default)]
 pub struct SMS {
     pub id: i64,
-    pub contact_id: i64,
+    pub contact_id: String,
     pub timestamp: NaiveDateTime,
     pub message: String,
     pub device: String,
@@ -64,7 +65,7 @@ pub struct ModemSMS {
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
 pub struct Contact {
-    pub id: i64,
+    pub id: String,
     pub name: String,
 }
 
@@ -109,8 +110,7 @@ impl SMS {
         .await?;
         Ok(count)
     }
-
-    pub async fn count_by_contact_id(contact_id: &i64) -> Result<i64> {
+    pub async fn count_by_contact_id(contact_id: &str) -> Result<i64> {
         let pool = get_pool()?;
         let count = sqlx::query_scalar(
             r#"
@@ -148,9 +148,8 @@ impl SMS {
 
         Ok((sms_list, total))
     }
-
     pub async fn paginate_by_contact_id(
-        contact_id: &i64,
+        contact_id: &str,
         page: u32,
         per_page: u32,
     ) -> Result<(Vec<Self>, i64)> {
@@ -207,7 +206,7 @@ impl SMS {
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
-        .bind(self.contact_id)
+        .bind(&self.contact_id)
         .bind(&self.timestamp)
         .bind(&self.message)
         .bind(&self.device)
@@ -218,8 +217,7 @@ impl SMS {
 
         Ok(sms_id)
     }
-
-    pub async fn query_unread_by_contact_id(contact_id: &i64) -> Result<Vec<Self>> {
+    pub async fn query_unread_by_contact_id(contact_id: &str) -> Result<Vec<Self>> {
         let pool = get_pool()?;
         let mut tx = pool.begin().await?;
         let sms_list = sqlx::query_as(
@@ -295,8 +293,7 @@ impl Contact {
 
         Ok(contacts)
     }
-
-    pub async fn query_by_id(id: &i64) -> Result<Self> {
+    pub async fn query_by_id(id: &str) -> Result<Self> {
         let pool = get_pool()?;
         let contact = sqlx::query_as("SELECT id, name FROM contacts WHERE id = ?")
             .bind(id)
@@ -305,47 +302,48 @@ impl Contact {
 
         Ok(contact)
     }
-
-    pub async fn insert(name: &str) -> Result<i64> {
+    pub async fn insert(&self) -> Result<()> {
         let pool = get_pool()?;
-        let contact_id = sqlx::query_scalar::<_, i64>(
+
+        sqlx::query(
             r#"
-            INSERT INTO contacts (name) VALUES (?) RETURNING id
+            INSERT INTO contacts (id, name) VALUES (?, ?)
             "#,
         )
-        .bind(name)
-        .fetch_one(pool)
+        .bind(&self.id)
+        .bind(&self.name)
+        .execute(pool)
         .await?;
 
-        Ok(contact_id)
-    }
-
-    pub async fn insert_or_get_id(name: &str) -> Result<i64> {
+        Ok(())
+    }    pub async fn find_or_create(&mut self) -> Result<()> {
         let pool = get_pool()?;
 
-        let existing_id = sqlx::query_scalar::<_, Option<i64>>(
+        let existing_id = sqlx::query_scalar::<_, Option<String>>(
             r#"
             SELECT id FROM contacts WHERE name = ?
             "#,
         )
-        .bind(name)
+        .bind(&self.name)
         .fetch_one(pool)
         .await;
 
         if let Ok(Some(id)) = existing_id {
-            return Ok(id);
+            self.id = id;
+            return Ok(());
         }
 
-        let contact_id = sqlx::query_scalar::<_, i64>(
+        sqlx::query(
             r#"
-            INSERT INTO contacts (name) VALUES (?) RETURNING id
+            INSERT INTO contacts (id, name) VALUES (?, ?)
             "#,
         )
-        .bind(name)
-        .fetch_one(pool)
+        .bind(&self.id)
+        .bind(&self.name)
+        .execute(pool)
         .await?;
 
-        Ok(contact_id)
+        Ok(())
     }
 
     pub async fn delete_contacts_without_messages() -> Result<u64> {
@@ -362,8 +360,7 @@ impl Contact {
 
         Ok(affected_rows.rows_affected())
     }
-
-    pub async fn delete_by_id(id: i64) -> Result<bool> {
+    pub async fn delete_by_id(id: &str) -> Result<bool> {
         let pool = get_pool()?;
 
         sqlx::query(
@@ -387,24 +384,6 @@ impl Contact {
         Ok(result.rows_affected() > 0)
     }
 
-    /// 更新联系人名称
-    pub async fn update_name(&self) -> Result<bool> {
-        let pool = get_pool()?;
-        
-        let result = sqlx::query(
-            r#"
-            UPDATE contacts
-            SET name = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(&self.name)
-        .bind(self.id)
-        .execute(pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
-    }
 }
 
 impl Conversation {
@@ -432,21 +411,19 @@ impl Conversation {
 
         Ok(conversations)
     }
-
-    pub async fn query_by_contact_ids(contact_ids: &[i64]) -> Result<Vec<Self>> {
+    pub async fn query_by_contact_ids(contact_ids: &[String]) -> Result<Vec<Self>> {
         let pool = get_pool()?;
 
         if contact_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        // 构建IN查询的参数列表
         let mut query_builder = QueryBuilder::new(
             "SELECT id, name, timestamp, message, status, device FROM v_contacts WHERE id IN (",
         );
 
         let mut separated = query_builder.separated(", ");
-        for &id in contact_ids {
+        for id in contact_ids {
             separated.push_bind(id);
         }
         separated.push_unseparated(") ORDER BY timestamp DESC");
@@ -459,7 +436,6 @@ impl Conversation {
     pub async fn _mark_as_read(&self) -> Result<()> {
         let pool = get_pool()?;
 
-        // 更新最近一条消息的已读状态
         sqlx::query(
             r#"
             UPDATE sms 
@@ -474,8 +450,8 @@ impl Conversation {
             )"#,
         )
         .bind(SmsStatus::Read as i32)
-        .bind(self.contact.id)
-        .bind(self.contact.id)
+        .bind(&self.contact.id)
+        .bind(&self.contact.id)
         .execute(pool)
         .await?;
 
@@ -487,8 +463,8 @@ impl ModemSMS {
     pub async fn get_contact_id<'a>(
         &self,
         transaction: &'a mut Transaction<'_, Sqlite>,
-    ) -> Result<i64> {
-        let contact_id = sqlx::query_scalar::<_, i64>(
+    ) -> Result<String> {
+        let contact_id = sqlx::query_scalar::<_, String>(
             r#"
             SELECT id FROM contacts WHERE name = ?
             "#,
@@ -500,16 +476,19 @@ impl ModemSMS {
         if let Some(contact_id) = contact_id {
             Ok(contact_id)
         } else {
-            let contact_id = sqlx::query_scalar::<_, i64>(
+            let uuid = Uuid::new_v4().to_string();
+
+            sqlx::query(
                 r#"
-                INSERT INTO contacts (name) VALUES (?)
+                INSERT INTO contacts (id, name) VALUES (?, ?)
                 "#,
             )
+            .bind(&uuid)
             .bind(&self.contact)
-            .fetch_one(&mut **transaction)
+            .execute(&mut **transaction)
             .await?;
 
-            Ok(contact_id)
+            Ok(uuid)
         }
     }
 
@@ -550,8 +529,7 @@ impl ModemSMS {
 
         Ok(sms_id)
     }
-
-    pub async fn bulk_insert(records: &[Self]) -> Result<Vec<i64>> {
+    pub async fn bulk_insert(records: &[Self]) -> Result<Vec<String>> {
         let pool = get_pool()?;
 
         let mut transaction = pool.begin().await?;
@@ -566,16 +544,7 @@ impl ModemSMS {
             .map(|contact| contact.clone())
             .collect::<Vec<String>>();
 
-        for chunk in contact_names.chunks(MAX_BATCH_SIZE) {
-            let mut query_builder = QueryBuilder::new("INSERT OR IGNORE INTO contacts (name) ");
-
-            query_builder.push_values(chunk, |mut b, contact| {
-                b.push_bind(contact);
-            });
-
-            query_builder.build().execute(&mut *transaction).await?;
-        }
-
+        // 查询已存在的联系人
         let mut query_builder = QueryBuilder::new("SELECT id, name FROM contacts WHERE name IN (");
 
         let mut separated = query_builder.separated(", ");
@@ -586,15 +555,34 @@ impl ModemSMS {
 
         let rows = query_builder.build().fetch_all(&mut *transaction).await?;
 
-        let contact_map: HashMap<String, i64> = rows
+        let mut contact_map: HashMap<String, String> = rows
             .into_iter()
             .map(|row| {
-                let id: i64 = row.try_get(0).unwrap();
+                let id: String = row.try_get(0).unwrap();
                 let name: String = row.try_get(1).unwrap();
 
                 (name, id)
             })
             .collect();
+
+        // 插入新联系人
+        for contact_name in contact_names.iter() {
+            if !contact_map.contains_key(contact_name) {
+                let uuid = Uuid::new_v4().to_string();
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO contacts (id, name) VALUES (?, ?)
+                    "#,
+                )
+                .bind(&uuid)
+                .bind(contact_name)
+                .execute(&mut *transaction)
+                .await?;
+
+                contact_map.insert(contact_name.clone(), uuid);
+            }
+        }
 
         for chunk in records.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new(

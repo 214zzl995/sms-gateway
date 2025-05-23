@@ -25,6 +25,7 @@ hex = "*"
 regex = "*"
 futures-util = "0.3"
 tokio-stream = { version = "0.1", features = ["full"] }
+uuid = { version = "1.2", features = ["v4"] }
 
 [target.x86_64-unknown-linux-musl.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"] }

@@ -153,9 +153,7 @@ impl Modem {
             }
         }
 
-        drop(port);
-
-        if ok_received && cmgs_received {
+        drop(port);        if ok_received && cmgs_received {
             Ok(final_response)
         } else {
             error!(
@@ -168,36 +166,35 @@ impl Modem {
             )))
         }
     }
-    /// Send SMS message with enhanced response handling
-    pub async fn send_sms_text(
+    
+    /// Internal helper function to prepare SMS and handle common send logic
+    async fn prepare_and_send_sms<F, Fut>(
         &self,
         contact: &Contact,
         message: &str,
-    ) -> anyhow::Result<(i64, i64)> {
-        info!("Sending SMS to {}: {}", contact.name, message);
-
-        let contact_id = if contact.id == -1 {
-            match crate::db::Contact::insert_or_get_id(&contact.name).await {
-                Ok(id) => id,
-                Err(err) => {
-                    error!("Failed to insert or get contact ID: {}", err);
-                    return Err(anyhow::anyhow!(err));
-                }
-            }
-        } else {
-            contact.id
-        };
-
+        log_prefix: &str,
+        send_fn: F,
+    ) -> anyhow::Result<(i64, String)>
+    where
+        F: FnOnce(i64) -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<()>>,
+    {
+        info!("{} to {}: {}", log_prefix, contact.name, message);
+        
+        let contact_id = contact.id.clone();
+        
+        // Create SMS record
         let sms = SMS {
             id: 0,
-            contact_id,
+            contact_id: contact_id.clone(),
             timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
             message: message.to_string(),
             device: self.name.clone(),
             send: true,
             status: crate::db::SmsStatus::Loading,
         };
-
+        
+        // Insert SMS record
         let sms_id = match sms.insert().await {
             Ok(id) => id,
             Err(err) => {
@@ -205,24 +202,17 @@ impl Modem {
                 return Err(anyhow::anyhow!(err));
             }
         };
-
-        match self
-            .send_sms_content(&format!("AT+CMGS=\"{}\"\r", contact.name), message, |msg| {
-                Ok(string_to_ucs2(msg)?)
-            })
-            .await
-        {
-            Ok(_) => {
-                if let Err(err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Read).await
-                {
+        
+        // Call the provided send function
+        match send_fn(sms_id).await {
+            Ok(()) => {
+                if let Err(err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Read).await {
                     error!("Failed to update SMS status to Read: {}", err);
                 }
                 Ok((sms_id, contact_id))
             }
             Err(err) => {
-                if let Err(update_err) =
-                    SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await
-                {
+                if let Err(update_err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await {
                     error!("Failed to update SMS status to Failed: {}", update_err);
                 }
                 error!("Failed to send SMS: {}", err);
@@ -230,74 +220,51 @@ impl Modem {
             }
         }
     }
+
+    /// Send SMS message with enhanced response handling
+    pub async fn send_sms_text(
+        &self,
+        contact: &Contact,
+        message: &str,
+    ) -> anyhow::Result<(i64, String)> {
+        self.prepare_and_send_sms(
+            contact,
+            message,
+            "Sending SMS",
+            |_| async {
+                self.send_sms_content(
+                    &format!("AT+CMGS=\"{}\"\r", contact.name),
+                    message,
+                    |msg| Ok(string_to_ucs2(msg)?)
+                ).await?;
+                Ok(())
+            }
+        ).await
+    }
+    
     /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
     pub async fn send_sms_pdu(
         &self,
         contact: &Contact,
         message: &str,
-    ) -> anyhow::Result<(i64, i64)> {
-        info!("Sending SMS via PDU to {}: {}", contact.name, message);
-
-        let contact_id = contact.id;
-
-        let sms = SMS {
-            id: 0,
-            contact_id,
-            timestamp: Local::now().naive_local().with_nanosecond(0).unwrap(),
-            message: message.to_string(),
-            device: self.name.clone(),
-            send: true,
-            status: crate::db::SmsStatus::Loading,
-        };
-
-        let sms_id = match sms.insert().await {
-            Ok(id) => id,
-            Err(err) => {
-                error!("Failed to insert SMS: {}", err);
-                return Err(anyhow::anyhow!(err));
+    ) -> anyhow::Result<(i64, String)> {
+        self.prepare_and_send_sms(
+            contact,
+            message,
+            "Sending SMS via PDU",
+            |_| async {
+                // PDU encoding
+                let (pdu_data, tpdu_length) = build_pdu(&contact.name, message)?;
+                
+                self.send_sms_content(
+                    &format!("AT+CMGS={}\r", tpdu_length),
+                    &pdu_data,
+                    |pdu| Ok(pdu.to_string())
+                ).await?;
+                
+                Ok(())
             }
-        };
-
-        // PDU encoding
-        let pdu_result = build_pdu(&contact.name, message);
-
-        match pdu_result {
-            Ok((pdu_data, tpdu_length)) => {
-                match self
-                    .send_sms_content(&format!("AT+CMGS={}\r", tpdu_length), &pdu_data, |pdu| {
-                        Ok(pdu.to_string())
-                    })
-                    .await
-                {
-                    Ok(_) => {
-                        if let Err(err) =
-                            SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Read).await
-                        {
-                            error!("Failed to update SMS status to Read: {}", err);
-                        }
-                        Ok((sms_id, contact_id))
-                    }
-                    Err(err) => {
-                        if let Err(update_err) =
-                            SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await
-                        {
-                            error!("Failed to update SMS status to Failed: {}", update_err);
-                        }
-                        error!("Failed to send SMS: {}", err);
-                        Err(err)
-                    }
-                }
-            }
-            Err(err) => {
-                if let Err(update_err) =
-                    SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await
-                {
-                    error!("Failed to update SMS status to Failed: {}", update_err);
-                }
-                error!("Failed to encode PDU: {}", err);
-                Err(err)
-            }
-        }
+        ).await
     }
 
     pub async fn read_sms_async_insert(

@@ -90,7 +90,7 @@ pub struct SmsQuery {
     page: u32,
     per_page: u32,
     #[serde(default)]
-    contact_id: Option<i64>,
+    contact_id: Option<String>,
 }
 
 async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
@@ -124,12 +124,10 @@ async fn get_sms_paginated(Query(query): Query<SmsQuery>) -> Response {
 
 async fn send_sms(
     State(devices): State<Devices>,
-    Json(payload): Json<SmsPayload>,
+    Json(mut payload): Json<SmsPayload>,
 ) -> impl IntoResponse {
-    let modem = devices.get(&payload.modem_id);
-
-    if payload.new {
-        payload.contact.update_name().await.unwrap();
+    let modem = devices.get(&payload.modem_id);    if payload.new {
+        payload.contact.find_or_create().await.unwrap();
     }
 
     match modem {
@@ -220,15 +218,15 @@ async fn get_device_sms_count(Path(name): Path<String>) -> Response {
     }
 }
 
-async fn create_contact(Json(payload): Json<String>) -> Response {
+async fn create_contact(Json(payload): Json<Contact>) -> Response {
     match Contact::insert(&payload).await {
         Ok(id) => (StatusCode::OK, Json(id)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }
 
-async fn delete_contact_by_id(Path(id): Path<i64>) -> Response {
-    match Contact::delete_by_id(id).await {
+async fn delete_contact_by_id(Path(id): Path<String>) -> Response {
+    match Contact::delete_by_id(&id).await {
         Ok(true) => (StatusCode::OK).into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, "Contact not found").into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
@@ -289,7 +287,7 @@ async fn sse_events(
     )
 }
 
-async fn get_conversation_unread(Path(id): Path<i64>) -> Response {
+async fn get_conversation_unread(Path(id): Path<String>) -> Response {
     match SMS::query_unread_by_contact_id(&id).await {
         Ok(messages) => (StatusCode::OK, Json(messages)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),

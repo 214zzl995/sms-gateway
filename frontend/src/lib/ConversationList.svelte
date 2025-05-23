@@ -12,6 +12,7 @@
     createNewContactName,
   } from "../stores/conversation";
   import { apiClient } from "../js/api";
+  import { generateUUID } from "../js/uuid";
 
   const SmsStatus = {
     Unread: 0,
@@ -42,37 +43,34 @@
       searchTemporaryIsActive = false;
     }, 500);
   }
-
   /**
    * @param {{ contact: { id: any; }; }} conversation
    */
   function conversationHandleClick(conversation) {
     changeCurrentConversation(conversation.contact);
   }
+
   function createNewMessage() {
-    if ( $conversations[0].contact.new) {
+    if ($conversations[0].contact.new) {
       return;
     }
-    apiClient.createContact(createNewContactName()).then((res) => {
-      changeCurrentConversation({
-        id: res.data,
-        name: "新信息",
-        new: true,
-      });
+
+    const uuid = generateUUID();
+    changeCurrentConversation({
+      id: uuid,
+      name: "新信息",
+      new: true,
     });
   }
-
   /**
-   * @param {{ contact: { id: number; }; }} conversation
+   * @param {{ contact: { id: string; }; }} conversation
    */
   function deleteConversationHandleClick(conversation) {
     if ($conversations.length === 1) {
       return;
     }
-    apiClient.deleteContactById(conversation.contact.id).then(() => {
-      deleteConversation(conversation.contact.id);
-      changeCurrentConversation($conversations[0].contact);
-    });
+    deleteConversation(conversation.contact.id);
+    changeCurrentConversation($conversations[0].contact);
   }
 </script>
 
@@ -111,9 +109,8 @@
             animate:flip={{ duration: 200, delay: 0 }}
             transition:fade={{ duration: 150 }}
             class="conversation-item flex flex-row items-center p-2 gap-2 cursor-pointer focus:outline-none focus:ring-0
-                        hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors duration-300 rounded-md relative "
-            class:bg-gray-200={$currentContact?.id ===
-              conversation.contact.id}
+                        hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors duration-300 rounded-md relative"
+            class:bg-gray-200={$currentContact?.id === conversation.contact.id}
             class:dark:bg-zinc-700={$currentContact?.id ===
               conversation.contact.id}
             role="button"
@@ -158,7 +155,8 @@
               <p class="text-gray-400 text-xs">
                 {formatDate(conversation.sms_preview.timestamp)}
               </p>
-            </div>            {#if conversation.contact.new === true}
+            </div>
+            {#if conversation.contact.new === true}
               <button
                 class="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-200 dark:bg-zinc-800
                                 rounded-full p-1.5 text-gray-400 hover:text-gray-800 dark:hover:text-gray-100
