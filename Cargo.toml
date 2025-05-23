@@ -29,3 +29,7 @@ uuid = { version = "1.2", features = ["v4"] }
 
 [target.x86_64-unknown-linux-musl.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"] }
+
+[dev-dependencies]
+wiremock = "0.5"
+serial_test = "2.0"

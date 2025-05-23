@@ -3,24 +3,32 @@ use config::{Config, File};
 use serde::Deserialize;
 use std::{collections::HashMap, path::Path};
 
-/// `Settings` struct, mapping the `settings` section in the TOML config file
+#[derive(Debug, Deserialize, Clone)]
+pub struct WebhookConfig {
+    pub url: String,
+    pub method: String,
+    pub headers: Option<HashMap<String, String>>,
+    pub body: Option<String>,
+    pub url_params: Option<HashMap<String, String>>,
+    pub timeout: Option<u64>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Settings {
     pub server_host: String,
     pub server_port: u16,
-    pub username:Option<String>,
-    pub password:Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub read_sms_frequency: u64,
+    pub webhooks: Option<Vec<WebhookConfig>>,
 }
 
-/// `Device` struct, mapping the `device` section in the TOML config file
 #[derive(Debug, Deserialize)]
 pub struct Device {
     pub com_port: String,
     pub baud_rate: u32,
 }
 
-/// `AppConfig` struct, containing both `settings` and `devices` sections
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub settings: Settings,

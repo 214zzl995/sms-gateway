@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use crate::api::SseManager;
 use crate::db::{Contact, ModemSMS, SMS};
 use crate::decode::parse_pdu_sms;
+use crate::webhook;
 
 const TERMINATORS: &[&[u8]] = &[
     b"\r\nOK\r\n",
@@ -153,7 +154,8 @@ impl Modem {
             }
         }
 
-        drop(port);        if ok_received && cmgs_received {
+        drop(port);
+        if ok_received && cmgs_received {
             Ok(final_response)
         } else {
             error!(
@@ -166,7 +168,7 @@ impl Modem {
             )))
         }
     }
-    
+
     /// Internal helper function to prepare SMS and handle common send logic
     async fn prepare_and_send_sms<F, Fut>(
         &self,
@@ -180,9 +182,9 @@ impl Modem {
         Fut: std::future::Future<Output = anyhow::Result<()>>,
     {
         info!("{} to {}: {}", log_prefix, contact.name, message);
-        
+
         let contact_id = contact.id.clone();
-        
+
         // Create SMS record
         let sms = SMS {
             id: 0,
@@ -193,7 +195,7 @@ impl Modem {
             send: true,
             status: crate::db::SmsStatus::Loading,
         };
-        
+
         // Insert SMS record
         let sms_id = match sms.insert().await {
             Ok(id) => id,
@@ -202,17 +204,20 @@ impl Modem {
                 return Err(anyhow::anyhow!(err));
             }
         };
-        
+
         // Call the provided send function
         match send_fn(sms_id).await {
             Ok(()) => {
-                if let Err(err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Read).await {
+                if let Err(err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Read).await
+                {
                     error!("Failed to update SMS status to Read: {}", err);
                 }
                 Ok((sms_id, contact_id))
             }
             Err(err) => {
-                if let Err(update_err) = SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await {
+                if let Err(update_err) =
+                    SMS::update_status_by_id(sms_id, crate::db::SmsStatus::Failed).await
+                {
                     error!("Failed to update SMS status to Failed: {}", update_err);
                 }
                 error!("Failed to send SMS: {}", err);
@@ -227,53 +232,54 @@ impl Modem {
         contact: &Contact,
         message: &str,
     ) -> anyhow::Result<(i64, String)> {
-        self.prepare_and_send_sms(
-            contact,
-            message,
-            "Sending SMS",
-            |_| async {
-                self.send_sms_content(
-                    &format!("AT+CMGS=\"{}\"\r", contact.name),
-                    message,
-                    |msg| Ok(string_to_ucs2(msg)?)
-                ).await?;
-                Ok(())
-            }
-        ).await
+        self.prepare_and_send_sms(contact, message, "Sending SMS", |_| async {
+            self.send_sms_content(&format!("AT+CMGS=\"{}\"\r", contact.name), message, |msg| {
+                Ok(string_to_ucs2(msg)?)
+            })
+            .await?;
+            Ok(())
+        })
+        .await
     }
-    
+
     /// Send SMS message in PDU mode (GSM 03.38/03.40 standard)
     pub async fn send_sms_pdu(
         &self,
         contact: &Contact,
         message: &str,
     ) -> anyhow::Result<(i64, String)> {
-        self.prepare_and_send_sms(
-            contact,
-            message,
-            "Sending SMS via PDU",
-            |_| async {
-                // PDU encoding
-                let (pdu_data, tpdu_length) = build_pdu(&contact.name, message)?;
-                
-                self.send_sms_content(
-                    &format!("AT+CMGS={}\r", tpdu_length),
-                    &pdu_data,
-                    |pdu| Ok(pdu.to_string())
-                ).await?;
-                
-                Ok(())
-            }
-        ).await
-    }
+        self.prepare_and_send_sms(contact, message, "Sending SMS via PDU", |_| async {
+            // PDU encoding
+            let (pdu_data, tpdu_length) = build_pdu(&contact.name, message)?;
 
+            self.send_sms_content(&format!("AT+CMGS={}\r", tpdu_length), &pdu_data, |pdu| {
+                Ok(pdu.to_string())
+            })
+            .await?;
+
+            Ok(())
+        })
+        .await
+    }
     pub async fn read_sms_async_insert(
         &self,
         sms_type: SmsType,
         sse_manager: Arc<SseManager>,
+        webhook_manager: Option<webhook::WebhookManager>,
     ) -> anyhow::Result<()> {
         let sms_list = self.read_sms(sms_type).await?;
         if !sms_list.is_empty() {
+            let sms_list_clone = sms_list.clone();
+            if let Some(webhook_mgr) = webhook_manager.clone() {
+                tokio::spawn(async move {
+                    for sms in sms_list_clone {
+                        if let Err(e) = webhook_mgr.send(sms) {
+                            log::error!("Failed to send webhook: {}", e);
+                        }
+                    }
+                });
+            }
+
             tokio::spawn(async move {
                 if let Ok(contact_ids) = ModemSMS::bulk_insert(&sms_list).await {
                     tokio::spawn(async move {

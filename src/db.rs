@@ -55,6 +55,7 @@ impl From<SmsStatus> for i32 {
     }
 }
 
+#[derive(Debug,Clone)]
 pub struct ModemSMS {
     pub contact: String,
     pub timestamp: NaiveDateTime,
