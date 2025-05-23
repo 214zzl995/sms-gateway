@@ -15,6 +15,8 @@ mod db;
 mod decode;
 mod modem;
 mod webhook;
+#[cfg(test)]
+mod tests;
 
 pub type Devices = Arc<HashMap<String, modem::Modem>>;
 
@@ -68,7 +70,7 @@ async fn main() {
     let sse_manager = Arc::new(api::SseManager::new());
 
     let webhook_manager = if let Some(cfgs) = config.settings.webhooks.clone() {
-        Some(webhook::start_webhook_worker(cfgs))
+        Some(webhook::start_webhook_worker_with_concurrency(cfgs, config.settings.webhooks_max_concurrent.unwrap_or(1)))
     } else {
         None
     };

@@ -20,6 +20,7 @@ pub struct Settings {
     pub username: Option<String>,
     pub password: Option<String>,
     pub read_sms_frequency: u64,
+    pub webhooks_max_concurrent: Option<usize>,
     pub webhooks: Option<Vec<WebhookConfig>>,
 }
 
