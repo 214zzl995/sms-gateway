@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{collections::HashMap, sync::LazyLock};
 
-use crate::config::WebhookConfig;
+use crate::config::{MessageFilter, TimeFilter, WebhookConfig};
 use crate::db::ModemSMS;
+use chrono::{Datelike, NaiveDateTime};
 use log::{debug, error, info, warn};
 use regex::Regex;
 use reqwest::Client;
@@ -46,6 +47,13 @@ struct PreprocessedWebhookConfig {
     body: Option<PreprocessedTemplate>,
     url_params: Option<HashMap<String, PreprocessedTemplate>>,
     timeout: Option<u64>,
+    
+    // Filters
+    contact_filter: Option<Vec<String>>,
+    device_filter: Option<Vec<String>>,
+    time_filter: Option<TimeFilter>,
+    message_filter: Option<MessageFilter>,
+    self_sent_only: Option<bool>,
 }
 
 impl PreprocessedTemplate {
@@ -170,7 +178,116 @@ impl PreprocessedWebhookConfig {
             body: config.body.as_ref().map(|b| PreprocessedTemplate::new(b)),
             url_params: url_params_map,
             timeout: config.timeout,
+            contact_filter: config.contact_filter.clone(),
+            device_filter: config.device_filter.clone(),
+            time_filter: config.time_filter.clone(),
+            message_filter: config.message_filter.clone(),
+            self_sent_only: config.self_sent_only,
         }
+    }
+    
+    // Check if a message passes all the filters
+    fn passes_filters(&self, msg: &ModemSMS) -> bool {
+        // Contact filter
+        if let Some(contacts) = &self.contact_filter {
+            if !contacts.is_empty() && !contacts.contains(&msg.contact) {
+                return false;
+            }
+        }
+        
+        // Device filter
+        if let Some(devices) = &self.device_filter {
+            if !devices.is_empty() && !devices.contains(&msg.device) {
+                return false;
+            }
+        }
+        
+        // Time filter
+        if let Some(time_filter) = &self.time_filter {
+            if !self.passes_time_filter(time_filter, &msg.timestamp) {
+                return false;
+            }
+        }
+        
+        // Message filter
+        if let Some(message_filter) = &self.message_filter {
+            if !self.passes_message_filter(message_filter, &msg.message) {
+                return false;
+            }
+        }
+        
+        // Self-sent filter
+        if let Some(self_sent_only) = &self.self_sent_only {
+            // If self_sent_only is true, only allow messages with send=true (sent by user)
+            // If self_sent_only is false, only allow messages with send=false (received messages)
+            if (*self_sent_only && !msg.send) || (!*self_sent_only && msg.send) {
+                return false;
+            }
+        }
+        
+        true
+    }
+    
+    // Check if a message passes the time filter
+    fn passes_time_filter(&self, time_filter: &TimeFilter, timestamp: &NaiveDateTime) -> bool {
+        // Check days of week if specified
+        if let Some(days) = &time_filter.days_of_week {
+            if !days.is_empty() {
+                let weekday = timestamp.weekday().num_days_from_sunday() as u8;
+                if !days.contains(&weekday) {
+                    return false;
+                }
+            }
+        }
+        
+        // Check time range if specified
+        if let (Some(start), Some(end)) = (&time_filter.start_time, &time_filter.end_time) {
+            if !start.is_empty() && !end.is_empty() {
+                let time = timestamp.format("%H:%M").to_string();
+                
+                // Simple string comparison works for HH:MM format
+                if time < *start || time > *end {
+                    return false;
+                }
+            }
+        }
+        
+        true
+    }
+    
+    // Check if a message passes the message content filter
+    fn passes_message_filter(&self, message_filter: &MessageFilter, message: &str) -> bool {
+        // Check 'contains' strings
+        if let Some(contains_list) = &message_filter.contains {
+            if !contains_list.is_empty() && !contains_list.iter().any(|s| message.contains(s)) {
+                return false;
+            }
+        }
+        
+        // Check 'not_contains' strings
+        if let Some(not_contains_list) = &message_filter.not_contains {
+            if !not_contains_list.is_empty() && not_contains_list.iter().any(|s| message.contains(s)) {
+                return false;
+            }
+        }
+        
+        // Check regex pattern
+        if let Some(pattern) = &message_filter.regex {
+            if !pattern.is_empty() {
+                match Regex::new(pattern) {
+                    Ok(re) => {
+                        if !re.is_match(message) {
+                            return false;
+                        }
+                    },
+                    Err(e) => {
+                        warn!("Invalid regex pattern in message filter: {}", e);
+                    }
+                }
+            }
+        }
+        
+        true
     }
 }
 
@@ -243,6 +360,12 @@ impl WebhookManager {
     }
     
     async fn process_webhook(&self, cfg: &PreprocessedWebhookConfig, msg: &ModemSMS) {
+        // Check if the message passes all filters before processing
+        if !cfg.passes_filters(msg) {
+            debug!("Message from {} filtered out by webhook configuration", msg.contact);
+            return;
+        }
+        
         let start_time = std::time::Instant::now();
         
         let _permit = match self.semaphore.acquire().await {

@@ -11,9 +11,30 @@ pub struct WebhookConfig {
     pub body: Option<String>,
     pub url_params: Option<HashMap<String, String>>,
     pub timeout: Option<u64>,
+    
+    // Filters
+    pub contact_filter: Option<Vec<String>>,   // List of contacts to include
+    pub device_filter: Option<Vec<String>>,    // List of devices to include
+    pub time_filter: Option<TimeFilter>,       // Time-based filtering
+    pub message_filter: Option<MessageFilter>, // Content-based filtering
+    pub self_sent_only: Option<bool>,         // If true, only process messages sent by the user
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct TimeFilter {
+    pub start_time: Option<String>,   // Format: "HH:MM" (24-hour format)
+    pub end_time: Option<String>,     // Format: "HH:MM" (24-hour format)
+    pub days_of_week: Option<Vec<u8>>, // 0-6, where 0 is Sunday
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MessageFilter {
+    pub contains: Option<Vec<String>>,      // Strings that must be in the message
+    pub not_contains: Option<Vec<String>>,  // Strings that must not be in the message
+    pub regex: Option<String>,              // Regular expression pattern to match
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Settings {
     pub server_host: String,
     pub server_port: u16,
