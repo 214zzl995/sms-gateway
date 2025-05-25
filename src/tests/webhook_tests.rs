@@ -74,6 +74,31 @@ fn create_regex_webhook_config(url: &str) -> WebhookConfig {
     }
 }
 
+// Create webhook config with index-based regex placeholders
+fn create_index_regex_webhook_config(url: &str) -> WebhookConfig {
+    WebhookConfig {
+        url: url.to_string(),
+        method: "POST".to_string(),
+        headers: Some({
+            let mut map = HashMap::new();
+            map.insert("Content-Type".to_string(), "application/json".to_string());
+            // Extract area code (first 3 digits) using index=1
+            map.insert("X-Area-Code".to_string(), "${value=contact, regex=^(\\d{3})(\\d{8})$, index=1}".to_string());
+            // Extract phone number (last 8 digits) using index=2
+            map.insert("X-Phone-Number".to_string(), "${value=contact, regex=^(\\d{3})(\\d{8})$, index=2}".to_string());
+            map
+        }),
+        body: Some(r#"{"fullMatch":"${value=message, regex=Hello (\\w+) from (\\w+), index=0}","firstName":"${value=message, regex=Hello (\\w+) from (\\w+), index=1}","location":"${value=message, regex=Hello (\\w+) from (\\w+), index=2}"}"#.to_string()),
+        url_params: None,
+        timeout: Some(5),
+        contact_filter: None,
+        device_filter: None,
+        time_filter: None,
+        message_filter: None,
+        self_sent_only: None,
+    }
+}
+
 // Create webhook config with contact filter
 fn create_contact_filtered_webhook_config(url: &str, contacts: Vec<String>) -> WebhookConfig {
     let mut config = create_simple_webhook_config(url);
@@ -116,6 +141,7 @@ fn create_self_sent_filtered_webhook_config(url: &str, self_sent_only: bool) -> 
     config.self_sent_only = Some(self_sent_only);
     config
 }
+
 
 #[tokio::test]
 async fn test_simple_webhook() {
@@ -171,6 +197,124 @@ async fn test_regex_webhook() {
     
     let webhook_url = format!("{}/webhook", mock_server.uri());
     let config = create_regex_webhook_config(&webhook_url);
+    
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+    
+    webhook_manager.send(test_sms).unwrap();
+    
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_regex_webhook_with_index() {
+    let mock_server = MockServer::start().await;
+    
+    // Create SMS with contact that matches the regex pattern (3 digits + 8 digits)
+    let test_sms = create_custom_sms(
+        "13812345678", 
+        "Hello John from Beijing", 
+        "test_device", 
+        "2025-05-23 15:00:00", 
+        false
+    );
+    
+    let expected_body = json!({
+        "fullMatch": "Hello John from Beijing",
+        "firstName": "John",
+        "location": "Beijing"
+    });
+    
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .and(header("X-Area-Code", "138"))  // index=1: first capture group
+        .and(header("X-Phone-Number", "12345678"))  // index=2: second capture group
+        .and(body_json(&expected_body))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+    
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    let config = create_index_regex_webhook_config(&webhook_url);
+    
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+    
+    webhook_manager.send(test_sms).unwrap();
+    
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_regex_webhook_with_invalid_index() {
+    let mock_server = MockServer::start().await;
+    
+    let test_sms = create_custom_sms(
+        "13812345678", 
+        "Hello World", 
+        "test_device", 
+        "2025-05-23 15:00:00", 
+        false
+    );
+    
+    // Create webhook config with out-of-range index
+    let mut config = create_simple_webhook_config(&format!("{}/webhook", mock_server.uri()));
+    config.body = Some(r#"{"invalidIndex":"${value=message, regex=Hello (\\w+), index=5}","validIndex":"${value=message, regex=Hello (\\w+), index=1}"}"#.to_string());
+    
+    let expected_body = json!({
+        "invalidIndex": "",  // Should be empty when index is out of range
+        "validIndex": "World"  // Should extract "World" from first capture group
+    });
+    
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .and(body_json(&expected_body))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+    
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+    
+    webhook_manager.send(test_sms).unwrap();
+    
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_regex_webhook_with_index_zero() {
+    let mock_server = MockServer::start().await;
+    
+    let test_sms = create_custom_sms(
+        "13812345678", 
+        "Order #12345 confirmed", 
+        "test_device", 
+        "2025-05-23 15:00:00", 
+        false
+    );
+    
+    // Create webhook config that uses index=0 to get the full match
+    let mut config = create_simple_webhook_config(&format!("{}/webhook", mock_server.uri()));
+    config.body = Some(r#"{"fullMatch":"${value=message, regex=Order #(\\d+) (\\w+), index=0}","orderNumber":"${value=message, regex=Order #(\\d+) (\\w+), index=1}","status":"${value=message, regex=Order #(\\d+) (\\w+), index=2}"}"#.to_string());
+    
+    let expected_body = json!({
+        "fullMatch": "Order #12345 confirmed",  // index=0: full match
+        "orderNumber": "12345",  // index=1: first capture group
+        "status": "confirmed"  // index=2: second capture group
+    });
+    
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .and(body_json(&expected_body))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
     
     let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
     
@@ -595,3 +739,5 @@ async fn test_combined_filters() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     mock_server.verify().await;
 }
+
+

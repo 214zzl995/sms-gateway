@@ -13,14 +13,11 @@ use tokio::sync::{mpsc, Semaphore};
 
 static RE_PLACEHOLDER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{(?P<content>.+?)\}").unwrap());
-static RE_REGEX_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"value\s*=\s*(?P<value_key>\w+)\s*,\s*regex\s*=\s*(?P<regex_pattern>.+)").unwrap()
-});
 
 #[derive(Clone)]
 enum PlaceholderType {
     Simple(String),
-    Regex(String, Regex),
+    Regex(String, Regex, Option<String>, Option<usize>),
 }
 
 #[derive(Clone)]
@@ -70,16 +67,24 @@ impl PreprocessedTemplate {
                 parts.push(TemplatePart::StaticText(static_text.to_string()));
             }
             
-            let placeholder_type = if let Some(regex_caps) = RE_REGEX_PLACEHOLDER.captures(content) {
-                let value_key = regex_caps.name("value_key").unwrap().as_str().to_string();
-                let regex_pattern = regex_caps.name("regex_pattern").unwrap().as_str();
+            let placeholder_type = if content.starts_with("value=") {
+                let parsed = Self::parse_placeholder_content(content);
+
+                println!("------------------------------");
+                println!("Parsing placeholder content: {}", content);
+                println!("Parsed placeholder: {:?}", parsed);
+                println!("------------------------------");
                 
-                match Regex::new(regex_pattern) {
-                    Ok(re) => PlaceholderType::Regex(value_key, re),
-                    Err(_) => {
-                        warn!("Invalid regex pattern: {}", regex_pattern);
-                        PlaceholderType::Simple("error".to_string())
+                if !parsed.regex_pattern.is_empty() {
+                    match Regex::new(&parsed.regex_pattern) {
+                        Ok(re) => PlaceholderType::Regex(parsed.value_key, re, parsed.key, parsed.index),
+                        Err(_) => {
+                            warn!("Invalid regex pattern: {}", parsed.regex_pattern);
+                            PlaceholderType::Simple("error".to_string())
+                        }
                     }
+                } else {
+                    PlaceholderType::Simple(parsed.value_key)
                 }
             } else {
                 PlaceholderType::Simple(content.to_string())
@@ -98,6 +103,94 @@ impl PreprocessedTemplate {
         
         PreprocessedTemplate {
             parts,
+        }
+    }
+    
+    // 解析占位符内容的状态机
+    fn parse_placeholder_content(content: &str) -> PlaceholderData {
+        let mut result = PlaceholderData::default();
+        let mut chars = content.chars().peekable();
+        let mut current_key = String::new();
+        let mut current_value = String::new();
+        let mut in_value = false;
+        let mut in_quotes = false;
+        let mut quote_char = '"'; // 记录使用的引号类型
+        let mut escaped = false;
+        
+        while let Some(ch) = chars.next() {
+            if escaped {
+                current_value.push(ch);
+                escaped = false;
+                continue;
+            }
+            
+            match ch {
+                '\\' if in_quotes => {
+                    escaped = true;
+                }
+                '"' | '\'' if in_value => {
+                    if in_quotes && ch == quote_char {
+                        // 结束引号
+                        in_quotes = false;
+                    } else if !in_quotes {
+                        // 开始引号
+                        in_quotes = true;
+                        quote_char = ch;
+                    } else {
+                        // 不匹配的引号类型，作为普通字符处理
+                        current_value.push(ch);
+                    }
+                }
+                '=' if !in_value && !in_quotes => {
+                    in_value = true;
+                    // 检查下一个字符是否是引号
+                    if let Some(&next_ch) = chars.peek() {
+                        if next_ch == '"' || next_ch == '\'' {
+                            chars.next(); // 消费引号
+                            in_quotes = true;
+                            quote_char = next_ch;
+                        }
+                    }
+                }
+                ',' if !in_quotes => {
+                    // 处理当前键值对
+                    Self::set_field(&mut result, &current_key.trim(), &current_value.trim());
+                    current_key.clear();
+                    current_value.clear();
+                    in_value = false;
+                }
+                ' ' if !in_value && !in_quotes => {
+                    // 忽略键名前后的空格
+                }
+                _ => {
+                    if in_value {
+                        current_value.push(ch);
+                    } else {
+                        current_key.push(ch);
+                    }
+                }
+            }
+        }
+        
+        // 处理最后一个键值对
+        if !current_key.is_empty() {
+            Self::set_field(&mut result, &current_key.trim(), &current_value.trim());
+        }
+        
+        result
+    }
+    
+    fn set_field(data: &mut PlaceholderData, key: &str, value: &str) {
+        match key {
+            "value" => data.value_key = value.to_string(),
+            "regex" => data.regex_pattern = value.to_string(),
+            "key" => data.key = Some(value.to_string()),
+            "index" => {
+                if let Ok(i) = value.parse::<usize>() {
+                    data.index = Some(i);
+                }
+            }
+            _ => {}
         }
     }
     
@@ -124,7 +217,7 @@ impl PreprocessedTemplate {
                             };
                             result.push_str(&value);
                         },
-                        PlaceholderType::Regex(value_key, regex) => {
+                        PlaceholderType::Regex(value_key, regex, key, index) => {
                             let value_to_match = match value_key.as_str() {
                                 "contact" => msg.contact.clone(),
                                 "message" => msg.message.clone(),
@@ -137,8 +230,20 @@ impl PreprocessedTemplate {
                             };
                             
                             if let Some(matched) = regex.captures(&value_to_match) {
-                                if let Some(first_capture) = matched.get(1) {
-                                    result.push_str(first_capture.as_str());
+                                // Priority: named key > index > default (index 0)
+                                let captured_text = if let Some(key_name) = key {
+                                    // Try to get by named key first
+                                    matched.name(&key_name).map(|m| m.as_str())
+                                } else if let Some(idx) = index {
+                                    // Then try by index
+                                    matched.get(*idx).map(|m| m.as_str())
+                                } else {
+                                    // Default to index 1 (first capture group)
+                                    matched.get(1).map(|m| m.as_str())
+                                };
+                                
+                                if let Some(text) = captured_text {
+                                    result.push_str(text);
                                 }
                             }
                         },
@@ -149,6 +254,14 @@ impl PreprocessedTemplate {
         
         result
     }
+}
+
+#[derive(Default,Debug)]
+struct PlaceholderData {
+    value_key: String,
+    regex_pattern: String,
+    key: Option<String>,
+    index: Option<usize>,
 }
 
 impl PreprocessedWebhookConfig {
