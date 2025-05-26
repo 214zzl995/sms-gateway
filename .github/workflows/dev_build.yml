@@ -1,0 +1,93 @@
+name: dev_build
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        rust_target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+        # 如果需更多平台可以在此处添加
+
+    steps:
+      # 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 安装 pnpm
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      # 进入 frontend 文件夹 安装依赖并构建
+      - name: Build the frontend (Svelte with pnpm)
+        working-directory: ./frontend
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Install system dependencies for Rust
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libssl-dev
+
+      # 安装 Rust 指定工具链和目标
+      - name: Install Rust toolchain
+        uses: ./.github/composite/rust
+        with:
+          rust: stable
+          cache-key: ${{ matrix.rust_target }}
+          target: ${{ matrix.rust_target }}
+          
+      # 安装 musl 工具链（GNU 下可以跳过）
+      - name: Install additional native dependencies
+        if: matrix.rust_target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Run cargo check
+        run: cargo check --target ${{ matrix.rust_target }}
+        shell: bash
+
+      # 构建 Rust 项目
+      - name: Build Rust project
+        run: cargo build --release --target ${{ matrix.rust_target }}
+
+      - name: Rename for release
+        run: mv target/${{ matrix.rust_target }}/release/sms-gateway target/sms-gateway-${{ matrix.rust_target }}
+        
+      # 上传产物
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-gateway-${{ matrix.rust_target }}
+          path: target/sms-gateway-${{ matrix.rust_target }}
+          if-no-files-found: error
+          
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Show files
+        run: find ./artifacts
+
+      - name: Publish to dev-latest release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: dev-latest
+          name: "Development Build"
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          commit: ${{ github.sha }}
+          artifacts: ./artifacts/*/*
+          generateReleaseNotes: false

@@ -1,0 +1,82 @@
+name: tag_release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust_target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - name: Build the frontend (Svelte with pnpm)
+        working-directory: ./frontend
+        run: |
+          pnpm install
+          pnpm build
+
+      - name: Install system dependencies for Rust
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libssl-dev
+
+      - name: Install Rust toolchain
+        uses: ./.github/composite/rust
+        with:
+          rust: stable
+          cache-key: ${{ matrix.rust_target }}
+          target: ${{ matrix.rust_target }}
+
+      - name: Install additional native dependencies
+        if: matrix.rust_target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Run cargo check
+        run: cargo check --target ${{ matrix.rust_target }}
+        shell: bash
+
+      - name: Build Rust project
+        run: cargo build --release --target ${{ matrix.rust_target }}
+
+      - name: Rename for release
+        run: mv target/${{ matrix.rust_target }}/release/sms-gateway target/sms-gateway-${{ matrix.rust_target }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-gateway-${{ matrix.rust_target }}
+          path: target/sms-gateway-${{ matrix.rust_target }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Show files
+        run: find ./artifacts
+
+      - name: Publish to tag release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: "Release ${{ github.ref_name }}"
+          allowUpdates: true
+          replacesArtifacts: true
+          commit: ${{ github.sha }}
+          artifacts: ./artifacts/*/*
+          generateReleaseNotes: true

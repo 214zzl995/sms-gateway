@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
+use api::SseManager;
 use db::db_init;
 use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
@@ -13,6 +14,9 @@ mod config;
 mod db;
 mod decode;
 mod modem;
+mod webhook;
+#[cfg(test)]
+mod tests;
 
 pub type Devices = Arc<HashMap<String, modem::Modem>>;
 
@@ -63,10 +67,19 @@ async fn main() {
         modems.insert(name.clone(), modem);
     }
     let modems_arc = Arc::new(modems);
+    let sse_manager = Arc::new(api::SseManager::new());
+
+    let webhook_manager = if let Some(cfgs) = config.settings.webhooks.clone() {
+        Some(webhook::start_webhook_worker_with_concurrency(cfgs, config.settings.webhooks_max_concurrent.unwrap_or(1)))
+    } else {
+        None
+    };
 
     tokio::spawn(read_sms_worker(
         modems_arc.clone(),
         config.settings.read_sms_frequency,
+        sse_manager.clone(),
+        webhook_manager,
     ));
 
     match api::run_api(
@@ -75,6 +88,7 @@ async fn main() {
         &config.settings.server_port,
         &config.settings.username.unwrap(),
         &config.settings.password.unwrap(),
+        sse_manager.clone(),
     )
     .await
     {
@@ -83,12 +97,27 @@ async fn main() {
     };
 }
 
-async fn read_sms_worker(devices: Devices, read_sms_frequency: u64) {
-    let modem_keys = devices.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
+async fn read_sms_worker(
+    devices: Devices,
+    read_sms_frequency: u64,
+    sse_manager: Arc<SseManager>,
+    webhook_manager: Option<webhook::WebhookManager>,
+) {
+    let modem_keys = devices
+        .iter()
+        .map(|x: (&String, &modem::Modem)| x.0.clone())
+        .collect::<Vec<_>>();
     loop {
         for key in &modem_keys {
             let modem = devices.get(key).unwrap();
-            if let Err(err) = modem.read_sms_async_insert(SmsType::RecUnread).await {
+            if let Err(err) = modem
+                .read_sms_async_insert(
+                    SmsType::RecUnread,
+                    sse_manager.clone(),
+                    webhook_manager.clone(),
+                )
+                .await
+            {
                 log::error!("Read SMS error: {}", err);
                 continue;
             }
