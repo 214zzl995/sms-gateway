@@ -3,6 +3,12 @@ name = "sms-gateway"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+strip = true       
+lto = true        
+codegen-units = 1 
+panic = "abort"   
+
 [dependencies]
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }

@@ -19,5 +19,21 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [svelte()],
+    build: {
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true,
+        },
+      },
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['svelte'],
+          },
+        },
+      },
+      chunkSizeWarningLimit: 1000,
+    },
   }
 })
