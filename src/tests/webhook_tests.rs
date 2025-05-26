@@ -1,159 +1,107 @@
-use crate::{config::{MessageFilter, TimeFilter, WebhookConfig}, db::ModemSMS, webhook::start_webhook_worker_with_concurrency};
+use crate::{config::WebhookConfig, db::ModemSMS, webhook::start_webhook_worker_with_concurrency};
 
-use chrono::NaiveDateTime;
-use std::{collections::HashMap, time::Duration};
+use chrono::{NaiveDateTime};
+use serde_json::json;
+use std::time::Duration;
 use wiremock::{
-    matchers::{method, path, body_json, header, query_param},
+    matchers::{body_json, header, method, path},
     Mock, MockServer, ResponseTemplate,
 };
-use serde_json::json;
 
 fn create_test_sms() -> ModemSMS {
     ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
         device: "test_device".to_string(),
-        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S").unwrap(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
         send: false,
     }
 }
 
-// Create SMS with specified parameters for testing filters
-fn create_custom_sms(contact: &str, message: &str, device: &str, timestamp: &str, send: bool) -> ModemSMS {
-    ModemSMS {
-        contact: contact.to_string(),
-        message: message.to_string(),
-        device: device.to_string(),
-        timestamp: NaiveDateTime::parse_from_str(timestamp, "%Y-%m-%d %H:%M:%S").unwrap(),
-        send,
-    }
-}
-
 fn create_simple_webhook_config(url: &str) -> WebhookConfig {
-    WebhookConfig {
-        url: url.to_string(),
-        method: "POST".to_string(),
-        headers: Some({
-            let mut map = HashMap::new();
-            map.insert("Content-Type".to_string(), "application/json".to_string());
-            map
-        }),
-        body: Some(r#"{"contact":"${contact}","message":"${message}","device":"${device}"}"#.to_string()),
-        url_params: None,
-        timeout: Some(5),
-        contact_filter: None,
-        device_filter: None,
-        time_filter: None,
-        message_filter: None,
-        self_sent_only: None,
-    }
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
+
+[headers]
+Content-Type = "application/json"
+
+"#,
+        url = url
+    );
+
+    toml::from_str(&toml).expect("Failed to parse WebhookConfig from toml")
 }
 
 fn create_regex_webhook_config(url: &str) -> WebhookConfig {
-    WebhookConfig {
-        url: url.to_string(),
-        method: "POST".to_string(),
-        headers: Some({
-            let mut map = HashMap::new();
-            map.insert("Content-Type".to_string(), "application/json".to_string());
-            map.insert("X-Phone".to_string(), "${value=contact, regex=^(\\d+)$}".to_string());
-            map
-        }),
-        body: Some(r#"{"contact":"${contact}","extractedMsg":"${value=message, regex=Test (.+) content}"}"#.to_string()),
-        url_params: Some({
-            let mut map = HashMap::new();
-            map.insert("phone".to_string(), "${contact}".to_string());
-            map
-        }),
-        timeout: Some(5),
-        contact_filter: None,
-        device_filter: None,
-        time_filter: None,
-        message_filter: None,
-        self_sent_only: None,
-    }
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","extracted_code":"@message::\[(\d+)\]::1@","named_match":"@message::prefix: (?P<code>\d+)::code@"}}'''
+
+[headers]
+Content-Type = "application/json"
+
+[url_params]
+id = "@device@"
+code = '''@message::\[(\d+)\]@'''
+
+"#,
+        url = url
+    );
+
+    toml::from_str(&toml).expect("Failed to parse WebhookConfig from toml")
 }
 
-// Create webhook config with index-based regex placeholders
-fn create_index_regex_webhook_config(url: &str) -> WebhookConfig {
-    WebhookConfig {
-        url: url.to_string(),
-        method: "POST".to_string(),
-        headers: Some({
-            let mut map = HashMap::new();
-            map.insert("Content-Type".to_string(), "application/json".to_string());
-            // Extract area code (first 3 digits) using index=1
-            map.insert("X-Area-Code".to_string(), "${value=contact, regex=^(\\d{3})(\\d{8})$, index=1}".to_string());
-            // Extract phone number (last 8 digits) using index=2
-            map.insert("X-Phone-Number".to_string(), "${value=contact, regex=^(\\d{3})(\\d{8})$, index=2}".to_string());
-            map
-        }),
-        body: Some(r#"{"fullMatch":"${value=message, regex=Hello (\\w+) from (\\w+), index=0}","firstName":"${value=message, regex=Hello (\\w+) from (\\w+), index=1}","location":"${value=message, regex=Hello (\\w+) from (\\w+), index=2}"}"#.to_string()),
-        url_params: None,
-        timeout: Some(5),
-        contact_filter: None,
-        device_filter: None,
-        time_filter: None,
-        message_filter: None,
-        self_sent_only: None,
-    }
-}
+fn create_filtered_webhook_config(url: &str) -> WebhookConfig {
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
 
-// Create webhook config with contact filter
-fn create_contact_filtered_webhook_config(url: &str, contacts: Vec<String>) -> WebhookConfig {
-    let mut config = create_simple_webhook_config(url);
-    config.contact_filter = Some(contacts);
-    config
-}
+contact_filter = ["13800138000", "13900139000"]
+device_filter = ["test_device"]
+include_self_sent = false
 
-// Create webhook config with device filter
-fn create_device_filtered_webhook_config(url: &str, devices: Vec<String>) -> WebhookConfig {
-    let mut config = create_simple_webhook_config(url);
-    config.device_filter = Some(devices);
-    config
-}
+[headers]
+Content-Type = "application/json"
 
-// Create webhook config with time filter
-fn create_time_filtered_webhook_config(url: &str, start_time: Option<String>, end_time: Option<String>, days: Option<Vec<u8>>) -> WebhookConfig {
-    let mut config = create_simple_webhook_config(url);
-    config.time_filter = Some(TimeFilter {
-        start_time,
-        end_time,
-        days_of_week: days,
-    });
-    config
-}
+[message_filter]
+contains = ["Test", "message"]
+not_contains = ["ignore", "skip"]
+regex = ".*content$"
 
-// Create webhook config with message content filter
-fn create_message_filtered_webhook_config(url: &str, contains: Option<Vec<String>>, not_contains: Option<Vec<String>>, regex: Option<String>) -> WebhookConfig {
-    let mut config = create_simple_webhook_config(url);
-    config.message_filter = Some(MessageFilter {
-        contains,
-        not_contains,
-        regex,
-    });
-    config
-}
+[time_filter]
+start_time = "08:00"
+end_time = "18:00"
+days_of_week = [1, 2, 3, 4, 5]  
 
-// Create webhook config with self-sent filter
-fn create_self_sent_filtered_webhook_config(url: &str, self_sent_only: bool) -> WebhookConfig {
-    let mut config = create_simple_webhook_config(url);
-    config.self_sent_only = Some(self_sent_only);
-    config
-}
+"#,
+        url = url
+    );
 
+    toml::from_str(&toml).expect("Failed to parse WebhookConfig from toml")
+}
 
 #[tokio::test]
 async fn test_simple_webhook() {
     let mock_server = MockServer::start().await;
-    
+
     let test_sms = create_test_sms();
     let expected_body = json!({
         "contact": "13800138000",
         "message": "Test message content",
         "device": "test_device"
     });
-    
+
     Mock::given(method("POST"))
         .and(path("/webhook"))
         .and(body_json(&expected_body))
@@ -162,428 +110,131 @@ async fn test_simple_webhook() {
         .expect(1)
         .mount(&mock_server)
         .await;
-    
+
     let webhook_url = format!("{}/webhook", mock_server.uri());
     let config = create_simple_webhook_config(&webhook_url);
-    
+
     let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
+
     webhook_manager.send(test_sms).unwrap();
-    
+
     tokio::time::sleep(Duration::from_secs(1)).await;
-    
+
     mock_server.verify().await;
 }
 
 #[tokio::test]
-async fn test_regex_webhook() {
+async fn test_regex_extraction_webhook() {
     let mock_server = MockServer::start().await;
-    
-    let test_sms = create_test_sms();
+
+    let mut test_sms = create_test_sms();
+    test_sms.message = "prefix: 12345 [67890] suffix".to_string();
+
     let expected_body = json!({
         "contact": "13800138000",
-        "extractedMsg": "message"
+        "extracted_code": "67890",
+        "named_match": "12345"
     });
-    
+
     Mock::given(method("POST"))
-        .and(path("/webhook"))
-        .and(query_param("phone", "13800138000"))
-        .and(header("X-Phone", "13800138000"))
+        .and(path("/regex-webhook"))
         .and(body_json(&expected_body))
-        .respond_with(ResponseTemplate::new(200))
+        .and(header("Content-Type", "application/json"))
+        .and(wiremock::matchers::query_param("id", "test_device"))
+        .and(wiremock::matchers::query_param("code", "67890"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "success"})))
         .expect(1)
         .mount(&mock_server)
         .await;
-    
-    let webhook_url = format!("{}/webhook", mock_server.uri());
+
+    let webhook_url = format!("{}/regex-webhook", mock_server.uri());
     let config = create_regex_webhook_config(&webhook_url);
-    
+
     let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
+
     webhook_manager.send(test_sms).unwrap();
-    
+
     tokio::time::sleep(Duration::from_secs(1)).await;
-    
+
     mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_regex_webhook_with_index() {
-    let mock_server = MockServer::start().await;
-    
-    // Create SMS with contact that matches the regex pattern (3 digits + 8 digits)
-    let test_sms = create_custom_sms(
-        "13812345678", 
-        "Hello John from Beijing", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    let expected_body = json!({
-        "fullMatch": "Hello John from Beijing",
-        "firstName": "John",
-        "location": "Beijing"
-    });
-    
-    Mock::given(method("POST"))
-        .and(path("/webhook"))
-        .and(header("X-Area-Code", "138"))  // index=1: first capture group
-        .and(header("X-Phone-Number", "12345678"))  // index=2: second capture group
-        .and(body_json(&expected_body))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_url = format!("{}/webhook", mock_server.uri());
-    let config = create_index_regex_webhook_config(&webhook_url);
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    
-    mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_regex_webhook_with_invalid_index() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_custom_sms(
-        "13812345678", 
-        "Hello World", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    // Create webhook config with out-of-range index
-    let mut config = create_simple_webhook_config(&format!("{}/webhook", mock_server.uri()));
-    config.body = Some(r#"{"invalidIndex":"${value=message, regex=Hello (\\w+), index=5}","validIndex":"${value=message, regex=Hello (\\w+), index=1}"}"#.to_string());
-    
-    let expected_body = json!({
-        "invalidIndex": "",  // Should be empty when index is out of range
-        "validIndex": "World"  // Should extract "World" from first capture group
-    });
-    
-    Mock::given(method("POST"))
-        .and(path("/webhook"))
-        .and(body_json(&expected_body))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    
-    mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_regex_webhook_with_index_zero() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_custom_sms(
-        "13812345678", 
-        "Order #12345 confirmed", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    // Create webhook config that uses index=0 to get the full match
-    let mut config = create_simple_webhook_config(&format!("{}/webhook", mock_server.uri()));
-    config.body = Some(r#"{"fullMatch":"${value=message, regex=Order #(\\d+) (\\w+), index=0}","orderNumber":"${value=message, regex=Order #(\\d+) (\\w+), index=1}","status":"${value=message, regex=Order #(\\d+) (\\w+), index=2}"}"#.to_string());
-    
-    let expected_body = json!({
-        "fullMatch": "Order #12345 confirmed",  // index=0: full match
-        "orderNumber": "12345",  // index=1: first capture group
-        "status": "confirmed"  // index=2: second capture group
-    });
-    
-    Mock::given(method("POST"))
-        .and(path("/webhook"))
-        .and(body_json(&expected_body))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    
-    mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_multiple_webhooks() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_test_sms();
-    
-    Mock::given(method("POST"))
-        .and(path("/webhook1"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/webhook2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_url1 = format!("{}/webhook1", mock_server.uri());
-    let webhook_url2 = format!("{}/webhook2", mock_server.uri());
-    let config1 = create_simple_webhook_config(&webhook_url1);
-    let config2 = create_simple_webhook_config(&webhook_url2);
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    
-    mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_webhook_concurrency_limit() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_test_sms();
-    
-    // We expect exactly 4 calls - all messages will be processed, but with concurrency limit of 2
-    Mock::given(method("POST"))
-        .and(path("/webhook"))
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(500)))
-        .expect(4)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_url = format!("{}/webhook", mock_server.uri());
-    let config = create_simple_webhook_config(&webhook_url);
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 2);
-    
-    webhook_manager.send(test_sms.clone()).unwrap();
-    webhook_manager.send(test_sms.clone()).unwrap();
-    webhook_manager.send(test_sms.clone()).unwrap();
-    webhook_manager.send(test_sms.clone()).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    
-    mock_server.verify().await;
-}
-
-#[tokio::test]
-async fn test_webhook_error_handling() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_test_sms();
-    
-    Mock::given(method("POST"))
-        .and(path("/error"))
-        .respond_with(ResponseTemplate::new(500))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_url = format!("{}/error", mock_server.uri());
-    let config = create_simple_webhook_config(&webhook_url);
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    
-    mock_server.verify().await;
-    
-    assert_eq!(webhook_manager.available_permits(), 5);
-}
-
-#[tokio::test]
-async fn test_webhook_graceful_shutdown() {
-    let mock_server = MockServer::start().await;
-    
-    let test_sms = create_test_sms();
-    
-    Mock::given(method("POST"))
-        .and(path("/slow"))
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(1)))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_url = format!("{}/slow", mock_server.uri());
-    let config = create_simple_webhook_config(&webhook_url);
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    webhook_manager.send(test_sms).unwrap();
-
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    assert_eq!(webhook_manager.available_permits(), 4);
-    
-    webhook_manager.shutdown().await;
-    
-    mock_server.verify().await;
-    
-    assert_eq!(webhook_manager.available_permits(), 5);
 }
 
 #[tokio::test]
 async fn test_contact_filter() {
     let mock_server = MockServer::start().await;
-    
-    // This webhook should only process messages from 13800138000
-    let webhook_url1 = format!("{}/filtered", mock_server.uri());
-    let config1 = create_contact_filtered_webhook_config(&webhook_url1, vec!["13800138000".to_string()]);
-    
-    // This webhook should only process messages from 13900139000
-    let webhook_url2 = format!("{}/filtered2", mock_server.uri());
-    let config2 = create_contact_filtered_webhook_config(&webhook_url2, vec!["13900139000".to_string()]);
-    
-    // Setup mock expectations - only webhook1 should be called with the first SMS
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    let config = create_filtered_webhook_config(&webhook_url);
+
+    let matching_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+    let non_matching_sms = ModemSMS {
+        contact: "13700137000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
     Mock::given(method("POST"))
-        .and(path("/filtered"))
+        .and(path("/webhook"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(1)
+        .expect(1)  
         .mount(&mock_server)
         .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/filtered2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)  // Should not be called
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    // Create SMS that should only trigger the first webhook
-    let test_sms = create_custom_sms(
-        "13800138000", 
-        "Test message content", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    webhook_manager.send(test_sms).unwrap();
-    
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(matching_sms).unwrap();
+    webhook_manager.send(non_matching_sms).unwrap();  
+
     tokio::time::sleep(Duration::from_secs(1)).await;
+
     mock_server.verify().await;
 }
 
 #[tokio::test]
 async fn test_device_filter() {
     let mock_server = MockServer::start().await;
-    
-    // This webhook should only process messages from device1
-    let webhook_url1 = format!("{}/filtered", mock_server.uri());
-    let config1 = create_device_filtered_webhook_config(&webhook_url1, vec!["device1".to_string()]);
-    
-    // This webhook should only process messages from device2
-    let webhook_url2 = format!("{}/filtered2", mock_server.uri());
-    let config2 = create_device_filtered_webhook_config(&webhook_url2, vec!["device2".to_string()]);
-    
-    // Setup mock expectations - only webhook2 should be called with our test SMS
-    Mock::given(method("POST"))
-        .and(path("/filtered"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)  // Should not be called
-        .mount(&mock_server)
-        .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/filtered2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    // Create SMS that should only trigger the second webhook
-    let test_sms = create_custom_sms(
-        "13800138000", 
-        "Test message content", 
-        "device2", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    mock_server.verify().await;
-}
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    let config = create_filtered_webhook_config(&webhook_url);
 
-#[tokio::test]
-async fn test_time_filter() {
-    let mock_server = MockServer::start().await;
-    
-    // This webhook should only process messages sent between 14:00 and 16:00
-    let webhook_url1 = format!("{}/filtered", mock_server.uri());
-    let config1 = create_time_filtered_webhook_config(
-        &webhook_url1, 
-        Some("14:00".to_string()), 
-        Some("16:00".to_string()), 
-        None
-    );
-    
-    // This webhook should only process messages sent between 17:00 and 19:00
-    let webhook_url2 = format!("{}/filtered2", mock_server.uri());
-    let config2 = create_time_filtered_webhook_config(
-        &webhook_url2, 
-        Some("17:00".to_string()), 
-        Some("19:00".to_string()), 
-        None
-    );
-    
-    // Setup mock expectations - only webhook1 should be called with our 15:00 test SMS
+    let matching_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    let non_matching_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "other_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
     Mock::given(method("POST"))
-        .and(path("/filtered"))
+        .and(path("/webhook"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .mount(&mock_server)
         .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/filtered2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)  // Should not be called
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    // SMS sent at 15:00 (should only trigger the first webhook)
-    let test_sms = create_custom_sms(
-        "13800138000", 
-        "Test message content", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    webhook_manager.send(test_sms).unwrap();
-    
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(matching_sms).unwrap();
+    webhook_manager.send(non_matching_sms).unwrap(); 
+
     tokio::time::sleep(Duration::from_secs(1)).await;
     mock_server.verify().await;
 }
@@ -591,153 +242,285 @@ async fn test_time_filter() {
 #[tokio::test]
 async fn test_message_filter() {
     let mock_server = MockServer::start().await;
-    
-    // This webhook should only process messages containing "important"
-    let webhook_url1 = format!("{}/filtered", mock_server.uri());
-    let config1 = create_message_filtered_webhook_config(
-        &webhook_url1, 
-        Some(vec!["important".to_string()]), 
-        None, 
-        None
-    );
-    
-    // This webhook should only process messages NOT containing "ignore"
-    let webhook_url2 = format!("{}/filtered2", mock_server.uri());
-    let config2 = create_message_filtered_webhook_config(
-        &webhook_url2, 
-        None, 
-        Some(vec!["ignore".to_string()]), 
-        None
-    );
-    
-    // Setup mock expectations
-    Mock::given(method("POST"))
-        .and(path("/filtered"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/filtered2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    // SMS containing "important" but not "ignore" (should trigger both webhooks)
-    let test_sms = create_custom_sms(
-        "13800138000", 
-        "This is an important message", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    mock_server.verify().await;
-}
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    let config = create_filtered_webhook_config(&webhook_url);
 
-#[tokio::test]
-async fn test_self_sent_filter() {
-    let mock_server = MockServer::start().await;
-    
-    // This webhook should only process messages sent by the user
-    let webhook_url1 = format!("{}/filtered", mock_server.uri());
-    let config1 = create_self_sent_filtered_webhook_config(&webhook_url1, true);
-    
-    // This webhook should only process messages received from others
-    let webhook_url2 = format!("{}/filtered2", mock_server.uri());
-    let config2 = create_self_sent_filtered_webhook_config(&webhook_url2, false);
-    
-    // Setup mock expectations - only webhook1 should be called with a self-sent SMS
-    Mock::given(method("POST"))
-        .and(path("/filtered"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&mock_server)
-        .await;
-    
-    Mock::given(method("POST"))
-        .and(path("/filtered2"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)  // Should not be called
-        .mount(&mock_server)
-        .await;
-    
-    let webhook_manager = start_webhook_worker_with_concurrency(vec![config1, config2], 5);
-    
-    // Create a self-sent SMS (send = true)
-    let test_sms = create_custom_sms(
-        "13800138000", 
-        "This is a message I sent myself", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        true  // Self-sent
-    );
-    
-    webhook_manager.send(test_sms).unwrap();
-    
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    mock_server.verify().await;
-}
+    let matching_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(), 
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
 
-#[tokio::test]
-async fn test_combined_filters() {
-    let mock_server = MockServer::start().await;
-    
-    // This webhook has multiple filters that all need to match
-    let webhook_url = format!("{}/filtered", mock_server.uri());
-    let mut config = create_simple_webhook_config(&webhook_url);
-    
-    // Set multiple filters
-    config.contact_filter = Some(vec!["13800138000".to_string()]);
-    config.device_filter = Some(vec!["test_device".to_string()]);
-    config.message_filter = Some(MessageFilter {
-        contains: Some(vec!["urgent".to_string()]),
-        not_contains: None,
-        regex: None,
-    });
-    config.self_sent_only = Some(false);
-    
-    // Setup mock expectations
+    let contains_ignore_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message ignore content".to_string(), 
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    let regex_mismatch_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message something".to_string(), 
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
     Mock::given(method("POST"))
-        .and(path("/filtered"))
+        .and(path("/webhook"))
         .respond_with(ResponseTemplate::new(200))
         .expect(1)
         .mount(&mock_server)
         .await;
-    
+
     let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
-    
-    // This SMS should match all filter criteria
-    let matching_sms = create_custom_sms(
-        "13800138000", 
-        "This is an urgent message", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    // This SMS should not match the message filter
-    let non_matching_sms = create_custom_sms(
-        "13800138000", 
-        "This is a regular message", 
-        "test_device", 
-        "2025-05-23 15:00:00", 
-        false
-    );
-    
-    // Send both messages, but only the matching one should trigger the webhook
-    webhook_manager.send(non_matching_sms).unwrap();
+
     webhook_manager.send(matching_sms).unwrap();
-    
+    webhook_manager.send(contains_ignore_sms).unwrap();  
+    webhook_manager.send(regex_mismatch_sms).unwrap();  
+
     tokio::time::sleep(Duration::from_secs(1)).await;
     mock_server.verify().await;
 }
 
+#[tokio::test]
+async fn test_time_filter() {
+    let mock_server = MockServer::start().await;
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    let config = create_filtered_webhook_config(&webhook_url);
+
+    let working_hours_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(), 
+        send: false,
+    };
+
+    let off_hours_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 20:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    let weekend_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-24 10:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(), 
+        send: false,
+    };
+
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1) 
+        .mount(&mock_server)
+        .await;
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(working_hours_sms).unwrap();
+    webhook_manager.send(off_hours_sms).unwrap(); 
+    webhook_manager.send(weekend_sms).unwrap(); 
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_include_self_sent_enabled() {
+    let mock_server = MockServer::start().await;
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+
+contact_filter = ["13800138000", "13900139000"]
+device_filter = ["test_device"]
+include_self_sent = true
+
+[headers]
+Content-Type = "application/json"
+
+"#,
+        url = webhook_url
+    );
+    let config: WebhookConfig = toml::from_str(&toml).expect("Failed to parse WebhookConfig");
+
+    let self_sent_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from sent".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: true,
+    };
+
+    let received_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from received".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&mock_server)
+        .await;
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(self_sent_sms).unwrap();
+    webhook_manager.send(received_sms).unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_include_self_sent_disabled() {
+    let mock_server = MockServer::start().await;
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+
+contact_filter = ["13800138000", "13900139000"]
+device_filter = ["test_device"]
+include_self_sent = false
+
+[headers]
+Content-Type = "application/json"
+
+"#,
+        url = webhook_url
+    );
+    let config: WebhookConfig = toml::from_str(&toml).expect("Failed to parse WebhookConfig");
+
+    let self_sent_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from sent".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: true,
+    };
+
+    let received_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from received".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .and(body_json(&json!({
+            "contact": "13800138000",
+            "message": "Test message content from received",
+            "device": "test_device",
+            "send": "false"
+        })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(self_sent_sms).unwrap(); 
+    webhook_manager.send(received_sms).unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    mock_server.verify().await;
+}
+
+#[tokio::test]
+async fn test_include_self_sent_default() {
+    let mock_server = MockServer::start().await;
+    let webhook_url = format!("{}/webhook", mock_server.uri());
+    
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+
+contact_filter = ["13800138000", "13900139000"]
+device_filter = ["test_device"]
+
+[headers]
+Content-Type = "application/json"
+
+"#,
+        url = webhook_url
+    );
+    let config: WebhookConfig = toml::from_str(&toml).expect("Failed to parse WebhookConfig");
+
+    let self_sent_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from sent".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: true,
+    };
+
+    let received_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message content from received".to_string(),
+        device: "test_device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+
+    Mock::given(method("POST"))
+        .and(path("/webhook"))
+        .and(body_json(&json!({
+            "contact": "13800138000",
+            "message": "Test message content from received",
+            "device": "test_device",
+            "send": "false"
+        })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(self_sent_sms).unwrap(); 
+    webhook_manager.send(received_sms).unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    mock_server.verify().await;
+}
 
