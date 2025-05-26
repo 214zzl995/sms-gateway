@@ -60,7 +60,7 @@
 </script>
 
 <div class="fixed top-4 left-4 sm:top-6 sm:left-6 flex items-center space-x-2 z-10">
-    <img src="/sms.svg" class="w-6 h-6" alt="SMS Gateway Logo" />
+    <img src="/logo.svg" class="w-6 h-6" alt="SMS Gateway Logo" />
     <span class="text-sm font-medium text-gray-600 dark:text-gray-400">SMS Geteway</span>
 </div>
 
