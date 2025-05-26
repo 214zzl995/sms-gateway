@@ -20,7 +20,6 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [svelte()],
     build: {
-      minify: 'terser',
       terserOptions: {
         compress: {
           drop_console: true,
