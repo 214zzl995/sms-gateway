@@ -6,6 +6,7 @@ use chrono::{Datelike, NaiveDateTime};
 use log::{debug, error, info};
 use reqwest::Client;
 use tokio::sync::{mpsc, Semaphore};
+use fancy_regex::Regex;
 
 pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
     let mut result = String::new();
@@ -25,18 +26,20 @@ pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> 
                 };
 
                 if let Some(regex) = &placeholder.regex {
-                    if let Some(caps) = regex.captures(&value) {
-                        let extracted = if let Some(name) = &placeholder.regex_name {
-                            caps.name(name).map(|m| m.as_str().to_string())
-                        } else if let Some(index) = placeholder.regex_index {
-                            caps.get(index).map(|m| m.as_str().to_string())
-                        } else {
-                            caps.get(1).map(|m| m.as_str().to_string())
-                        };
-
-                        if let Some(text) = extracted {
-                            result.push_str(&text);
-                        }
+                    match regex.captures(&value) {
+                        Ok(Some(caps)) => {
+                            let extracted = if let Some(name) = &placeholder.regex_name {
+                                caps.name(name).map(|m| m.as_str().to_string())
+                            } else if let Some(index) = placeholder.regex_index {
+                                caps.get(index).map(|m| m.as_str().to_string())
+                            } else {
+                                caps.get(1).map(|m| m.as_str().to_string())
+                            };
+                            if let Some(text) = extracted {
+                                result.push_str(&text);
+                            }
+                        },
+                        _ => {},
                     }
                 } else {
                     result.push_str(&value);
@@ -181,8 +184,9 @@ impl WebhookManager {
         }
 
         if let Some(re) = &message_filter.regex {
-            if !re.is_match(message) {
-                return false;
+            match re.is_match(message) {
+                Ok(true) => {},
+                _ => return false,
             }
         }
 

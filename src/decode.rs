@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use regex::Regex;
+use fancy_regex::Regex;
 use std::collections::HashMap;
 
 use crate::db::ModemSMS;
@@ -75,7 +75,7 @@ pub fn parse_pdu_sms(cmgl_entries: &str, device: &str) -> Vec<ModemSMS> {
     let mut messages = Vec::new();
     let entry_re = Regex::new(r#"\+(CMGL): (\d+).*?\n([0-9A-F]+)"#).unwrap();
 
-    for cap in entry_re.captures_iter(cmgl_entries) {
+    for cap in entry_re.captures_iter(cmgl_entries).flatten() {
         let index = cap[2].parse().unwrap();
         let pdu = hex::decode(&cap[3]).unwrap();
 

@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use config::{Config, File};
-use regex::Regex;
-use serde::Deserialize;
-use std::{collections::HashMap, path::Path, fmt, str::FromStr};
 use chrono::{NaiveTime, Weekday};
+use config::{Config, File};
+use fancy_regex::Regex;
+use serde::Deserialize;
+use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -87,7 +87,7 @@ impl From<Method> for reqwest::Method {
 #[derive(Debug, Clone)]
 pub struct WebhookConfig {
     pub url: Vec<TemplateSegment>,
-    pub method: Method, 
+    pub method: Method,
     pub headers: Option<HashMap<String, Vec<TemplateSegment>>>,
     pub body: Option<Vec<TemplateSegment>>,
     pub url_params: Option<HashMap<String, Vec<TemplateSegment>>>,
@@ -98,13 +98,13 @@ pub struct WebhookConfig {
     pub device_filter: Option<Vec<String>>,  // List of devices to include
     pub time_filter: Option<TimeFilter>,     // Time-based filtering
     pub message_filter: Option<MessageFilter>, // Content-based filtering
-    pub include_self_sent: Option<bool>,     // If true, include messages sent by the user in webhook
+    pub include_self_sent: Option<bool>, // If true, include messages sent by the user in webhook
 }
 
 #[derive(Debug, Clone)]
 pub struct TimeFilter {
-    pub start_time: Option<NaiveTime>,    // Format: HH:MM
-    pub end_time: Option<NaiveTime>,      // Format: HH:MM
+    pub start_time: Option<NaiveTime>,      // Format: HH:MM
+    pub end_time: Option<NaiveTime>,        // Format: HH:MM
     pub days_of_week: Option<Vec<Weekday>>, // 0-6, where 0 is Sunday
 }
 
@@ -117,7 +117,7 @@ pub struct MessageFilter {
 
 #[derive(Debug, Clone)]
 pub enum TemplateSegment {
-    Fixed(String), 
+    Fixed(String),
     Placeholder(Placeholder),
 }
 
@@ -185,8 +185,8 @@ impl<'de> Deserialize<'de> for WebhookConfig {
     where
         D: serde::Deserializer<'de>,
     {
-        use regex::Regex;
-        use serde::{Deserialize, de::Error};
+        use fancy_regex::Regex;
+        use serde::{de::Error, Deserialize};
 
         #[derive(Debug, Clone, Deserialize)]
         struct WebhookConfigDeserializer {
@@ -216,9 +216,9 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                 Ok(re) => re,
                 Err(e) => return Err(format!("Invalid template syntax: {}", e)),
             };
-            
+
             let mut last = 0;
-            for caps in re.captures_iter(s) {
+            for caps in re.captures_iter(s).flatten() {
                 let m = caps.get(0).unwrap();
                 if m.start() > last {
                     let fixed = &s[last..m.start()];
@@ -247,18 +247,18 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                     }
                     _ => return Err(format!("Invalid template format in placeholder: {}", inner)),
                 };
-                
+
                 let regex_obj = if let Some(r) = regex.as_ref() {
                     match Regex::new(r) {
                         Ok(re) => Some(re),
-                        Err(e) => return Err(format!("Invalid regex in template '{}': {}", r, e))
+                        Err(e) => return Err(format!("Invalid regex in template '{}': {}", r, e)),
                     }
                 } else {
                     None
                 };
-                
+
                 let segment_name = parse_segment_name(name)?;
-                
+
                 segments.push(TemplateSegment::Placeholder(Placeholder {
                     name: segment_name,
                     regex: regex_obj,
@@ -274,7 +274,7 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                     segments.push(TemplateSegment::Fixed(fixed.to_string()));
                 }
             }
-            
+
             Ok(segments)
         }
 
@@ -288,25 +288,28 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                 _ => Err(format!("Unknown segment name: '{}'. Valid names are: contact, timestamp, message, device, send", s)),
             }
         }
-        
+
         fn validate_url(url_str: &str) -> Result<(), String> {
             if !(url_str.starts_with("http://") || url_str.starts_with("https://")) {
-                return Err(format!("URL must start with http:// or https:// (got: {})", url_str));
+                return Err(format!(
+                    "URL must start with http:// or https:// (got: {})",
+                    url_str
+                ));
             }
-            
+
             if url_str.trim().is_empty() {
                 return Err("URL cannot be empty".to_string());
             }
-            
+
             Ok(())
         }
-        
+
         fn validate_time_filter(filter: &Option<TimeFilter>) -> Result<(), String> {
             if let Some(tf) = filter {
                 if let (Some(start), Some(end)) = (tf.start_time, tf.end_time) {
                     if start > end {
                         return Err(format!(
-                            "Invalid time range: start_time {} is after end_time {}", 
+                            "Invalid time range: start_time {} is after end_time {}",
                             start, end
                         ));
                     }
@@ -314,16 +317,14 @@ impl<'de> Deserialize<'de> for WebhookConfig {
             }
             Ok(())
         }
-        
+
         let raw = WebhookConfigDeserializer::deserialize(deserializer)
             .map_err(|e| D::Error::custom(format!("Failed to deserialize WebhookConfig: {}", e)))?;
-        
-        validate_url(&raw.url)
-            .map_err(|e| D::Error::custom(e))?;
-        
-        let method = Method::from_str(&raw.method)
-            .map_err(|e| D::Error::custom(e))?;
-            
+
+        validate_url(&raw.url).map_err(|e| D::Error::custom(e))?;
+
+        let method = Method::from_str(&raw.method).map_err(|e| D::Error::custom(e))?;
+
         let url = parse_template_segments(&raw.url)
             .map_err(|e| D::Error::custom(format!("Invalid URL template: {}", e)))?;
 
@@ -334,24 +335,25 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                     if k.trim().is_empty() {
                         return Err(D::Error::custom("Header key cannot be empty"));
                     }
-                    let segments = parse_template_segments(&v)
-                        .map_err(|e| D::Error::custom(format!("Invalid header template '{}': {}", k, e)))?;
+                    let segments = parse_template_segments(&v).map_err(|e| {
+                        D::Error::custom(format!("Invalid header template '{}': {}", k, e))
+                    })?;
                     result.insert(k, segments);
                 }
                 Some(result)
-            },
-            None => None
+            }
+            None => None,
         };
-        
+
         let body = match raw.body {
             Some(b) => {
                 let segments = parse_template_segments(&b)
                     .map_err(|e| D::Error::custom(format!("Invalid body template: {}", e)))?;
                 Some(segments)
-            },
-            None => None
+            }
+            None => None,
         };
-        
+
         let url_params = match raw.url_params {
             Some(h) => {
                 let mut result = HashMap::new();
@@ -359,45 +361,48 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                     if k.trim().is_empty() {
                         return Err(D::Error::custom("URL parameter key cannot be empty"));
                     }
-                    let segments = parse_template_segments(&v)
-                        .map_err(|e| D::Error::custom(format!("Invalid URL param template '{}': {}", k, e)))?;
+                    let segments = parse_template_segments(&v).map_err(|e| {
+                        D::Error::custom(format!("Invalid URL param template '{}': {}", k, e))
+                    })?;
                     result.insert(k, segments);
                 }
                 Some(result)
-            },
-            None => None
+            }
+            None => None,
         };
-        
+
         let message_filter = match raw.message_filter {
             Some(mf) => {
                 let regex = match mf.regex {
-                    Some(r) => {
-                        match Regex::new(&r) {
-                            Ok(re) => Some(re),
-                            Err(e) => return Err(D::Error::custom(format!("Invalid regex in message filter: {}", e))),
+                    Some(r) => match Regex::new(&r) {
+                        Ok(re) => Some(re),
+                        Err(e) => {
+                            return Err(D::Error::custom(format!(
+                                "Invalid regex in message filter: {}",
+                                e
+                            )))
                         }
                     },
                     None => None,
                 };
-                
+
                 Some(MessageFilter {
                     contains: mf.contains,
                     not_contains: mf.not_contains,
                     regex,
                 })
-            },
+            }
             None => None,
         };
-        
-        validate_time_filter(&raw.time_filter)
-            .map_err(|e| D::Error::custom(e))?;
-            
+
+        validate_time_filter(&raw.time_filter).map_err(|e| D::Error::custom(e))?;
+
         if let Some(timeout) = raw.timeout {
             if timeout == 0 {
                 return Err(D::Error::custom("Webhook timeout cannot be zero"));
             }
         }
-        
+
         Ok(WebhookConfig {
             url,
             method,
@@ -419,7 +424,7 @@ impl<'de> Deserialize<'de> for TimeFilter {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::{Deserialize, de::Error};
+        use serde::{de::Error, Deserialize};
 
         #[derive(Deserialize)]
         struct TimeFilterHelper {
@@ -431,14 +436,18 @@ impl<'de> Deserialize<'de> for TimeFilter {
         let helper = TimeFilterHelper::deserialize(deserializer)?;
 
         let start_time = match helper.start_time {
-            Some(s) => Some(NaiveTime::parse_from_str(&s, "%H:%M")
-                .map_err(|e| D::Error::custom(format!("Invalid start_time format: {}", e)))?),
+            Some(s) => Some(
+                NaiveTime::parse_from_str(&s, "%H:%M")
+                    .map_err(|e| D::Error::custom(format!("Invalid start_time format: {}", e)))?,
+            ),
             None => None,
         };
 
         let end_time = match helper.end_time {
-            Some(s) => Some(NaiveTime::parse_from_str(&s, "%H:%M")
-                .map_err(|e| D::Error::custom(format!("Invalid end_time format: {}", e)))?),
+            Some(s) => Some(
+                NaiveTime::parse_from_str(&s, "%H:%M")
+                    .map_err(|e| D::Error::custom(format!("Invalid end_time format: {}", e)))?,
+            ),
             None => None,
         };
 
@@ -448,7 +457,8 @@ impl<'de> Deserialize<'de> for TimeFilter {
                 for day in days {
                     let weekday = match day {
                         serde_json::Value::Number(n) => {
-                            let num = n.as_u64()
+                            let num = n
+                                .as_u64()
                                 .ok_or_else(|| D::Error::custom("Invalid weekday number"))?;
                             match num {
                                 0 => Weekday::Sun,
@@ -458,27 +468,39 @@ impl<'de> Deserialize<'de> for TimeFilter {
                                 4 => Weekday::Thu,
                                 5 => Weekday::Fri,
                                 6 => Weekday::Sat,
-                                _ => return Err(D::Error::custom(format!("Invalid weekday number: {}, must be 0-6", num))),
+                                _ => {
+                                    return Err(D::Error::custom(format!(
+                                        "Invalid weekday number: {}, must be 0-6",
+                                        num
+                                    )))
+                                }
+                            }
+                        }
+                        serde_json::Value::String(s) => match s.to_lowercase().as_str() {
+                            "sunday" | "sun" => Weekday::Sun,
+                            "monday" | "mon" => Weekday::Mon,
+                            "tuesday" | "tue" => Weekday::Tue,
+                            "wednesday" | "wed" => Weekday::Wed,
+                            "thursday" | "thu" => Weekday::Thu,
+                            "friday" | "fri" => Weekday::Fri,
+                            "saturday" | "sat" => Weekday::Sat,
+                            _ => {
+                                return Err(D::Error::custom(format!(
+                                    "Invalid weekday string: {}",
+                                    s
+                                )))
                             }
                         },
-                        serde_json::Value::String(s) => {
-                            match s.to_lowercase().as_str() {
-                                "sunday" | "sun" => Weekday::Sun,
-                                "monday" | "mon" => Weekday::Mon,
-                                "tuesday" | "tue" => Weekday::Tue,
-                                "wednesday" | "wed" => Weekday::Wed,
-                                "thursday" | "thu" => Weekday::Thu,
-                                "friday" | "fri" => Weekday::Fri,
-                                "saturday" | "sat" => Weekday::Sat,
-                                _ => return Err(D::Error::custom(format!("Invalid weekday string: {}", s))),
-                            }
-                        },
-                        _ => return Err(D::Error::custom("Weekday must be a number (0-6) or string")),
+                        _ => {
+                            return Err(D::Error::custom(
+                                "Weekday must be a number (0-6) or string",
+                            ))
+                        }
                     };
                     weekdays.push(weekday);
                 }
                 Some(weekdays)
-            },
+            }
             None => None,
         };
 
