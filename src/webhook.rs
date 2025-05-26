@@ -6,7 +6,6 @@ use chrono::{Datelike, NaiveDateTime};
 use log::{debug, error, info};
 use reqwest::Client;
 use tokio::sync::{mpsc, Semaphore};
-use fancy_regex::Regex;
 
 pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
     let mut result = String::new();
