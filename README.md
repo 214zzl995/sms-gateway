@@ -1,5 +1,7 @@
 # 📱 SMS Gateway
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/214zzl995/sms-gateway)
+
 <div align="center">
   <img src="https://raw.githubusercontent.com/214zzl995/sms-gateway/main/frontend/public/logo.svg" alt="SMS Gateway Logo" width="200">
   <h3>A modern SMS management and forwarding system</h3>
