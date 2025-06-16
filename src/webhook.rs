@@ -52,7 +52,89 @@ pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> 
 }
 
 pub fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
-    encode(&apply_template_segments(segments, msg)).into_owned()
+    let mut result = String::new();
+
+    for segment in segments {
+        match segment {
+            TemplateSegment::Fixed(text) => {
+                result.push_str(text);
+            }
+            TemplateSegment::Placeholder(placeholder) => {
+                let value = match &placeholder.name {
+                    SegmentName::Contact => msg.contact.clone(),
+                    SegmentName::Message => msg.message.clone(),
+                    SegmentName::Device => msg.device.clone(),
+                    SegmentName::Timestamp => msg.timestamp.to_string(),
+                    SegmentName::Send => msg.send.to_string(),
+                };
+
+                let final_value = if let Some(regex) = &placeholder.regex {
+                    match regex.captures(&value) {
+                        Ok(Some(caps)) => {
+                            let extracted = if let Some(name) = &placeholder.regex_name {
+                                caps.name(name).map(|m| m.as_str().to_string())
+                            } else if let Some(index) = placeholder.regex_index {
+                                caps.get(index).map(|m| m.as_str().to_string())
+                            } else {
+                                caps.get(1).map(|m| m.as_str().to_string())
+                            };
+                            extracted.unwrap_or_default()
+                        },
+                        _ => String::new(),
+                    }
+                } else {
+                    value
+                };
+
+                result.push_str(&encode(&final_value));
+            }
+        }
+    }
+
+    result
+}
+
+pub fn apply_template_segments_url_params(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
+    let mut result = String::new();
+
+    for segment in segments {
+        match segment {
+            TemplateSegment::Fixed(text) => {
+                result.push_str(&encode(text));
+            }
+            TemplateSegment::Placeholder(placeholder) => {
+                let value = match &placeholder.name {
+                    SegmentName::Contact => msg.contact.clone(),
+                    SegmentName::Message => msg.message.clone(),
+                    SegmentName::Device => msg.device.clone(),
+                    SegmentName::Timestamp => msg.timestamp.to_string(),
+                    SegmentName::Send => msg.send.to_string(),
+                };
+
+                let final_value = if let Some(regex) = &placeholder.regex {
+                    match regex.captures(&value) {
+                        Ok(Some(caps)) => {
+                            let extracted = if let Some(name) = &placeholder.regex_name {
+                                caps.name(name).map(|m| m.as_str().to_string())
+                            } else if let Some(index) = placeholder.regex_index {
+                                caps.get(index).map(|m| m.as_str().to_string())
+                            } else {
+                                caps.get(1).map(|m| m.as_str().to_string())
+                            };
+                            extracted.unwrap_or_default()
+                        },
+                        _ => String::new(),
+                    }
+                } else {
+                    value
+                };
+
+                result.push_str(&encode(&final_value));
+            }
+        }
+    }
+
+    result
 }
 
 #[derive(Clone)]
@@ -245,7 +327,10 @@ impl WebhookManager {
         let mut url_params = std::collections::HashMap::new();
         if let Some(params) = &cfg.url_params {
             for (key, segments) in params {
-                url_params.insert(key.clone(), apply_template_segments(segments, msg));
+                // 对参数名和参数值都进行URL编码
+                let encoded_key = encode(key);
+                let encoded_value = apply_template_segments_url_params(segments, msg);
+                url_params.insert(encoded_key.into_owned(), encoded_value);
             }
         }
 
