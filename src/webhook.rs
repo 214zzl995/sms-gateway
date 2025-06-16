@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use urlencoding::encode;
 
 use crate::config::{MessageFilter, SegmentName, TemplateSegment, TimeFilter, WebhookConfig};
 use crate::db::ModemSMS;
@@ -48,6 +49,10 @@ pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> 
     }
 
     result
+}
+
+pub fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
+    encode(&apply_template_segments(segments, msg)).into_owned()
 }
 
 #[derive(Clone)]
@@ -213,7 +218,7 @@ impl WebhookManager {
 
         let client = &self.client;
 
-        let url = apply_template_segments(&cfg.url, msg);
+        let url = apply_template_segments_url(&cfg.url, msg);
 
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(h) = &cfg.headers {
