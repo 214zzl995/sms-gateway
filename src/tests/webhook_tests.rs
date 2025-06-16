@@ -524,3 +524,61 @@ Content-Type = "application/json"
     mock_server.verify().await;
 }
 
+#[tokio::test]
+async fn test_url_encoding_fix() {
+    let mock_server = MockServer::start().await;
+
+    let test_sms = ModemSMS {
+        contact: "13800138000".to_string(),
+        message: "Test message with special chars: 你好世界 & spaces".to_string(),
+        device: "test device".to_string(),
+        timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
+            .unwrap(),
+        send: false,
+    };
+    let expected_body = json!({
+        "contact": "13800138000",
+        "message": "Test message with special chars: 你好世界 & spaces",
+        "device": "test device"
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/webhook/test%20device"))  
+        .and(body_json(&expected_body))
+        .and(header("Content-Type", "application/json"))
+        .and(wiremock::matchers::query_param("device", "test%20device"))  // 参数值应该被编码
+        .and(wiremock::matchers::query_param("message", "Test%20message%20with%20special%20chars%3A%20%E4%BD%A0%E5%A5%BD%E4%B8%96%E7%95%8C%20%26%20spaces"))  // 参数值应该被编码
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "success"})))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let webhook_url = format!("{}/webhook/@device@", mock_server.uri());
+    let toml = format!(
+        r#"
+url = "{url}"
+method = "POST"
+timeout = 5
+body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
+
+[headers]
+Content-Type = "application/json"
+
+[url_params]
+device = "@device@"
+message = "@message@"
+
+"#,
+        url = webhook_url
+    );
+
+    let config: WebhookConfig = toml::from_str(&toml).expect("Failed to parse WebhookConfig");
+    let webhook_manager = start_webhook_worker_with_concurrency(vec![config], 5);
+
+    webhook_manager.send(test_sms).unwrap();
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    mock_server.verify().await;
+}
+
