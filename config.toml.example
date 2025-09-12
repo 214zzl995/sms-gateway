@@ -1,0 +1,162 @@
+# SMS Gateway Configuration Example
+# Copy this file to config.toml and modify the values according to your setup
+
+[settings]
+# Server configuration
+server_host = "0.0.0.0"          # Host to bind the web server to
+server_port = 8080               # Port for the web server
+
+# Authentication (optional)
+username = "admin"               # Web interface username
+password = "your_secure_password" # Web interface password
+
+# SMS reading frequency in seconds
+read_sms_frequency = 30          # How often to check for new SMS messages
+
+# Webhook configuration
+webhooks_max_concurrent = 10     # Maximum concurrent webhook requests
+
+# Global SMS storage setting (optional, can be overridden per device)
+# Options: "SIM", "ME" (module memory), "MT" (module default)
+sms_storage = "MT"
+
+# Device configurations
+# You can define multiple devices using different approaches:
+
+# Method 1: Multiple devices with explicit array syntax
+[[devices]]
+com_port = "/dev/ttyUSB0"        # Serial port for the first modem
+baud_rate = 115200               # Baud rate (common values: 9600, 19200, 38400, 115200)
+sms_storage = "SIM"              # Optional: Override global SMS storage for this device
+
+[[devices]]
+com_port = "/dev/ttyUSB1"        # Serial port for the second modem  
+baud_rate = 115200
+# sms_storage inherits from global settings if not specified
+
+# Method 2: Named device configuration (legacy support)
+# [devices.modem1]
+# com_port = "/dev/ttyUSB0"
+# baud_rate = 115200
+
+# Webhook configurations (optional)
+# Multiple webhooks can be configured to send SMS data to external services
+
+[[settings.webhooks]]
+url = "https://your-webhook-endpoint.com/sms"
+method = "POST"
+timeout = 30                     # Request timeout in seconds (optional)
+
+# HTTP headers (optional)
+[settings.webhooks.headers]
+"Content-Type" = "application/json"
+"Authorization" = "Bearer your-api-token"
+
+# Request body template using placeholders
+# Available placeholders: @contact@, @message@, @timestamp@, @sim@, @send@
+body = '''
+{
+    "from": "@contact@",
+    "message": "@message@",
+    "timestamp": "@timestamp@",
+    "sim_id": "@sim@",
+    "is_outgoing": @send@
+}
+'''
+
+# URL parameters (optional)
+[settings.webhooks.url_params]
+api_key = "your-api-key"
+source = "sms-gateway"
+
+# Filtering options (optional)
+contact_filter = ["+1234567890", "+0987654321"]  # Only send webhooks for these contacts
+sim_filter = ["SIM001", "SIM002"]                # Only send webhooks for these SIM cards
+include_self_sent = false                        # Include outgoing messages in webhooks
+
+# Time-based filtering (optional)
+[settings.webhooks.time_filter]
+start_time = "09:00"             # Only send webhooks between these times
+end_time = "17:00"               # Format: HH:MM (24-hour format)
+days_of_week = [1, 2, 3, 4, 5]   # 0=Sunday, 1=Monday, ..., 6=Saturday
+
+# Message content filtering (optional)  
+[settings.webhooks.message_filter]
+contains = ["urgent", "important"]              # Message must contain at least one of these
+not_contains = ["spam", "advertisement"]       # Message must not contain any of these
+regex = "\\b(alert|warning)\\b"               # Regular expression pattern to match
+
+# Additional webhook example with different configuration
+[[settings.webhooks]]
+url = "https://api.example.com/notifications"
+method = "POST"
+timeout = 15
+
+[settings.webhooks.headers]
+"Content-Type" = "application/x-www-form-urlencoded"
+
+# Form-encoded body example
+body = "phone=@contact@&message=@message@&time=@timestamp@"
+
+# Advanced placeholder examples with regex processing
+# Extract phone number parts: @contact::(\\+\\d{1,3})(\\d+)::country@
+# Extract message keywords: @message::\\b(\\w+)\\b::0@
+# Custom timestamp format: @timestamp::\\d{4}-\\d{2}-\\d{2}::date@
+
+# Multiple webhook configurations for different purposes
+[[settings.webhooks]]
+url = "https://monitoring.example.com/sms-received"
+method = "GET"
+
+# URL with placeholders
+url = "https://api.example.com/sms?from=@contact@&msg=@message@"
+
+[settings.webhooks.url_params]
+format = "json"
+version = "v1"
+
+# Only process incoming messages during business hours
+[settings.webhooks.time_filter]
+start_time = "08:00"
+end_time = "18:00"
+days_of_week = ["mon", "tue", "wed", "thu", "fri"]  # String format also supported
+
+# Filter for emergency messages only
+[settings.webhooks.message_filter]
+regex = "(?i)(emergency|urgent|help|sos)"
+include_self_sent = false
+
+# Configuration Notes:
+# 
+# 1. Device Configuration:
+#    - Ensure your user has permission to access the serial ports (usually add to dialout group)
+#    - Common serial ports: /dev/ttyUSB*, /dev/ttyACM*, /dev/ttyS*
+#    - Test connectivity with: ls -la /dev/tty* | grep USB
+#
+# 2. SMS Storage Options:
+#    - SIM: Store messages on the SIM card (limited capacity)
+#    - ME: Store messages in modem memory (varies by device)
+#    - MT: Use modem default setting (recommended)
+#
+# 3. Webhook Placeholders:
+#    - @contact@: Phone number of the sender/recipient
+#    - @message@: SMS message content
+#    - @timestamp@: ISO format timestamp (2024-01-01T12:00:00Z)
+#    - @sim@: SIM card identifier
+#    - @send@: Boolean (true for outgoing, false for incoming)
+#
+# 4. Webhook Filters:
+#    - All filter conditions must be met for a webhook to be triggered
+#    - Empty or missing filters means no filtering (all messages processed)
+#    - Regular expressions support full Rust regex syntax
+#
+# 5. Time Filters:
+#    - Times are in 24-hour format (HH:MM)
+#    - Days of week: 0=Sunday, 1=Monday, ..., 6=Saturday
+#    - String names also supported: "sun", "monday", "tue", etc.
+#
+# 6. Security Considerations:
+#    - Use HTTPS for webhook URLs in production
+#    - Store sensitive tokens in environment variables when possible
+#    - Regularly rotate API keys and passwords
+#    - Consider IP whitelisting for webhook endpoints
