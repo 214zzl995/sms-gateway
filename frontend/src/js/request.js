@@ -139,16 +139,16 @@ class Fetch {
 }
 
 const FetchApi = {
-    get: (/** @type {string} */ partialUrl,/** @type {Record<string, string | number>} */ query, /** @type {string} */ contentType,/** @type {Record<string, string | AbortSignal>} */ headers) => {
+    get: (/** @type {string} */ partialUrl,/** @type {Record<string, string | number>} */ query = {}, /** @type {string} */ contentType = undefined,/** @type {Record<string, string | AbortSignal>} */ headers = {}) => {
         return new Fetch().get(partialUrl, query, contentType, headers);
     },
-    delete: (/** @type {string} */ partialUrl, /** @type {any} */ query) => {
+    delete: (/** @type {string} */ partialUrl, /** @type {any} */ query = {}) => {
         return new Fetch().delete(partialUrl, query);
     },
-    post: (/** @type {string} */ partialUrl, /** @type {any} */ body, /** @type {any} */ query, /** @type {string} */ contentType) => {
+    post: (/** @type {string} */ partialUrl, /** @type {any} */ body, /** @type {any} */ query = {}, /** @type {string} */ contentType = undefined) => {
         return new Fetch().post(partialUrl, body, query, contentType);
     },
-    put: (/** @type {string} */ partialUrl, /** @type {any} */ body, /** @type {any} */ query, /** @type {string} */ contentType) => {
+    put: (/** @type {string} */ partialUrl, /** @type {any} */ body, /** @type {any} */ query = {}, /** @type {string} */ contentType = undefined) => {
         return new Fetch().put(partialUrl, body, query, contentType);
     }
 }

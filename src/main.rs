@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use api::SseManager;
 use db::db_init;
@@ -6,7 +6,7 @@ use flexi_logger::{
     colored_detailed_format, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming,
 };
 use log::LevelFilter;
-use modem::SmsType;
+use modem::{SmsType, ModemManager};
 use structopt::StructOpt;
 
 mod api;
@@ -18,7 +18,7 @@ mod webhook;
 #[cfg(test)]
 mod tests;
 
-pub type Devices = Arc<HashMap<String, modem::Modem>>;
+pub type ModemManagerRef = Arc<ModemManager>;
 
 #[tokio::main]
 async fn main() {
@@ -48,80 +48,52 @@ async fn main() {
         }
     };
 
-    let mut modems = HashMap::new();
-
-    for (name, device) in &config.devices {
-        let modem = match modem::Modem::new(&device.com_port, device.baud_rate, name) {
-            Ok(mut modem) => {
-                if let Err(err) = modem.init_modem().await {
-                    eprintln!("Error: {}", err);
-                    std::process::exit(1);
-                }
-                modem
-            }
-            Err(err) => {
-                eprintln!("Error: {}", err);
-                std::process::exit(1);
-            }
-        };
-        modems.insert(name.clone(), modem);
-    }
-    let modems_arc = Arc::new(modems);
+    let modem_manager = match ModemManager::initialize(&config).await {
+        Ok(manager) => Arc::new(manager),
+        Err(err) => {
+            eprintln!("Failed to initialize ModemManager: {}", err);
+            std::process::exit(1);
+        }
+    };
+    
     let sse_manager = Arc::new(api::SseManager::new());
 
-    let webhook_manager = if let Some(cfgs) = config.settings.webhooks.clone() {
+    let webhook_manager = match config.settings.webhooks.clone() { Some(cfgs) => {
         Some(webhook::start_webhook_worker_with_concurrency(cfgs, config.settings.webhooks_max_concurrent.unwrap_or(1)))
-    } else {
+    } _ => {
         None
-    };
+    }};
 
     tokio::spawn(read_sms_worker(
-        modems_arc.clone(),
+        modem_manager.clone(),
         config.settings.read_sms_frequency,
         sse_manager.clone(),
         webhook_manager,
     ));
 
-    match api::run_api(
-        modems_arc,
+    if let Ok(_) = api::run_api(
+        modem_manager.clone(),
         &config.settings.server_host,
         &config.settings.server_port,
         &config.settings.username.unwrap(),
         &config.settings.password.unwrap(),
         sse_manager.clone(),
     )
-    .await
-    {
-        Ok(_) => {}
-        Err(_) => {}
-    };
+    .await {};
 }
 
 async fn read_sms_worker(
-    devices: Devices,
+    modem_manager: ModemManagerRef,
     read_sms_frequency: u64,
     sse_manager: Arc<SseManager>,
     webhook_manager: Option<webhook::WebhookManager>,
 ) {
-    let modem_keys = devices
-        .iter()
-        .map(|x: (&String, &modem::Modem)| x.0.clone())
-        .collect::<Vec<_>>();
     loop {
-        for key in &modem_keys {
-            let modem = devices.get(key).unwrap();
-            if let Err(err) = modem
-                .read_sms_async_insert(
-                    SmsType::RecUnread,
-                    sse_manager.clone(),
-                    webhook_manager.clone(),
-                )
-                .await
-            {
-                log::error!("Read SMS error: {}", err);
-                continue;
-            }
-        }
+        modem_manager.read_all_sms_async(
+            SmsType::RecUnread,
+            sse_manager.clone(),
+            webhook_manager.clone(),
+        ).await;
 
         tokio::time::sleep(tokio::time::Duration::from_secs(read_sms_frequency)).await;
     }
@@ -129,6 +101,16 @@ async fn read_sms_worker(
 
 #[derive(Debug, StructOpt)]
 pub struct Param {
+#[cfg(debug_assertions)]
+    #[structopt(
+        short = "l",
+        long = "log",
+        parse(from_os_str),
+        default_value = "./logs"
+    )]
+    pub log_path: PathBuf,
+
+    #[cfg(not(debug_assertions))]
     #[structopt(
         short = "l",
         long = "log",
@@ -136,6 +118,8 @@ pub struct Param {
         default_value = "/var/lib/sms-gateway/log"
     )]
     pub log_path: PathBuf,
+
+    
 
     #[cfg(debug_assertions)]
     #[structopt(
@@ -166,11 +150,11 @@ pub struct Param {
 
 fn log_init(log_path: &PathBuf, log_level: &LevelFilter) -> anyhow::Result<()> {
     if !log_path.exists() {
-        std::fs::create_dir_all(&log_path)?;
+        std::fs::create_dir_all(log_path)?;
     }
     let file_spec = FileSpec::default().directory(log_path);
 
-    let _ = Logger::try_with_str(format!("{}", log_level.to_string()))?
+    let _ = Logger::try_with_str(format!("{}", log_level))?
         .log_to_file(file_spec)
         .duplicate_to_stderr(Duplicate::All)
         .format_for_stderr(colored_detailed_format)
@@ -185,3 +169,5 @@ fn log_init(log_path: &PathBuf, log_level: &LevelFilter) -> anyhow::Result<()> {
         .start()?;
     Ok(())
 }
+
+// SIM检测逻辑已完全移除 - 设备映射在启动时建立，运行时不再检测

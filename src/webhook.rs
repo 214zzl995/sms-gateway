@@ -2,13 +2,29 @@ use std::sync::Arc;
 use urlencoding::encode;
 
 use crate::config::{MessageFilter, SegmentName, TemplateSegment, TimeFilter, WebhookConfig};
-use crate::db::ModemSMS;
+use crate::db::{ModemSMS, SimCard};
 use chrono::{Datelike, NaiveDateTime};
 use log::{debug, error, info};
 use reqwest::Client;
 use tokio::sync::{mpsc, Semaphore};
 
-pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
+async fn get_sim_effective_alias(sim_id: &str) -> String {
+    match SimCard::find_by_conditions(Some(sim_id), None, None, None).await {
+        Ok(mut sim_cards) if !sim_cards.is_empty() => {
+            let sim_card = sim_cards.remove(0);
+            if let Some(alias) = sim_card.alias {
+                alias
+            } else if let Some(phone) = sim_card.phone_number {
+                phone
+            } else {
+                format!("SIM-{}", &sim_id[sim_id.len().saturating_sub(4)..])
+            }
+        },
+        _ => format!("SIM-{}", &sim_id[sim_id.len().saturating_sub(4)..]),
+    }
+}
+
+pub async fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
     let mut result = String::new();
 
     for segment in segments {
@@ -20,26 +36,23 @@ pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> 
                 let value = match &placeholder.name {
                     SegmentName::Contact => msg.contact.clone(),
                     SegmentName::Message => msg.message.clone(),
-                    SegmentName::Device => msg.device.clone(),
+                    SegmentName::Sim => get_sim_effective_alias(&msg.sim_id).await,
                     SegmentName::Timestamp => msg.timestamp.to_string(),
                     SegmentName::Send => msg.send.to_string(),
                 };
 
                 if let Some(regex) = &placeholder.regex {
-                    match regex.captures(&value) {
-                        Ok(Some(caps)) => {
-                            let extracted = if let Some(name) = &placeholder.regex_name {
-                                caps.name(name).map(|m| m.as_str().to_string())
-                            } else if let Some(index) = placeholder.regex_index {
-                                caps.get(index).map(|m| m.as_str().to_string())
-                            } else {
-                                caps.get(1).map(|m| m.as_str().to_string())
-                            };
-                            if let Some(text) = extracted {
-                                result.push_str(&text);
-                            }
-                        },
-                        _ => {},
+                    if let Ok(Some(caps)) = regex.captures(&value) {
+                        let extracted = if let Some(name) = &placeholder.regex_name {
+                            caps.name(name).map(|m| m.as_str().to_string())
+                        } else if let Some(index) = placeholder.regex_index {
+                            caps.get(index).map(|m| m.as_str().to_string())
+                        } else {
+                            caps.get(1).map(|m| m.as_str().to_string())
+                        };
+                        if let Some(text) = extracted {
+                            result.push_str(&text);
+                        }
                     }
                 } else {
                     result.push_str(&value);
@@ -51,7 +64,7 @@ pub fn apply_template_segments(segments: &[TemplateSegment], msg: &ModemSMS) -> 
     result
 }
 
-pub fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
+pub async fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
     let mut result = String::new();
 
     for segment in segments {
@@ -63,7 +76,7 @@ pub fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS)
                 let value = match &placeholder.name {
                     SegmentName::Contact => msg.contact.clone(),
                     SegmentName::Message => msg.message.clone(),
-                    SegmentName::Device => msg.device.clone(),
+                    SegmentName::Sim => get_sim_effective_alias(&msg.sim_id).await,
                     SegmentName::Timestamp => msg.timestamp.to_string(),
                     SegmentName::Send => msg.send.to_string(),
                 };
@@ -94,7 +107,7 @@ pub fn apply_template_segments_url(segments: &[TemplateSegment], msg: &ModemSMS)
     result
 }
 
-pub fn apply_template_segments_url_params(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
+pub async fn apply_template_segments_url_params(segments: &[TemplateSegment], msg: &ModemSMS) -> String {
     let mut result = String::new();
 
     for segment in segments {
@@ -106,7 +119,7 @@ pub fn apply_template_segments_url_params(segments: &[TemplateSegment], msg: &Mo
                 let value = match &placeholder.name {
                     SegmentName::Contact => msg.contact.clone(),
                     SegmentName::Message => msg.message.clone(),
-                    SegmentName::Device => msg.device.clone(),
+                    SegmentName::Sim => get_sim_effective_alias(&msg.sim_id).await,
                     SegmentName::Timestamp => msg.timestamp.to_string(),
                     SegmentName::Send => msg.send.to_string(),
                 };
@@ -201,16 +214,19 @@ impl WebhookManager {
         }
     }
 
-    pub(crate) fn passes_filters(&self, config: &WebhookConfig, msg: &ModemSMS) -> bool {
+    pub(crate) async fn passes_filters(&self, config: &WebhookConfig, msg: &ModemSMS) -> bool {
         if let Some(contacts) = &config.contact_filter {
             if !contacts.is_empty() && !contacts.contains(&msg.contact) {
                 return false;
             }
         }
 
-        if let Some(devices) = &config.device_filter {
-            if !devices.is_empty() && !devices.contains(&msg.device) {
-                return false;
+        if let Some(sims) = &config.sim_filter {
+            if !sims.is_empty() {
+                let alias = get_sim_effective_alias(&msg.sim_id).await;
+                if !sims.contains(&alias) {
+                    return false;
+                }
             }
         }
 
@@ -280,7 +296,7 @@ impl WebhookManager {
     }
 
     async fn process_webhook(&self, cfg: &WebhookConfig, msg: &ModemSMS) {
-        if !self.passes_filters(cfg, msg) {
+        if !self.passes_filters(cfg, msg).await {
             debug!(
                 "Message from {} filtered out by webhook configuration",
                 msg.contact
@@ -300,26 +316,26 @@ impl WebhookManager {
 
         let client = &self.client;
 
-        let url = apply_template_segments_url(&cfg.url, msg);
+        let url = apply_template_segments_url(&cfg.url, msg).await;
 
         let mut headers = reqwest::header::HeaderMap::new();
         if let Some(h) = &cfg.headers {
             for (key, segments) in h {
-                let value = apply_template_segments(segments, msg);
-                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes()) {
-                    if let Ok(header_value) = reqwest::header::HeaderValue::from_str(&value) {
+                let value = apply_template_segments(segments, msg).await;
+                match reqwest::header::HeaderName::from_bytes(key.as_bytes()) { Ok(header_name) => {
+                    match reqwest::header::HeaderValue::from_str(&value) { Ok(header_value) => {
                         headers.insert(header_name, header_value);
-                    } else {
+                    } _ => {
                         error!("Invalid header value for key {}: {}", key, value);
-                    }
-                } else {
+                    }}
+                } _ => {
                     error!("Invalid header name: {}", key);
-                }
+                }}
             }
         }
 
         let body_str = if let Some(body) = &cfg.body {
-            Some(apply_template_segments(body, msg))
+            Some(apply_template_segments(body, msg).await)
         } else {
             None
         };
@@ -329,7 +345,7 @@ impl WebhookManager {
             for (key, segments) in params {
                 // 对参数名和参数值都进行URL编码
                 let encoded_key = encode(key);
-                let encoded_value = apply_template_segments_url_params(segments, msg);
+                let encoded_value = apply_template_segments_url_params(segments, msg).await;
                 url_params.insert(encoded_key.into_owned(), encoded_value);
             }
         }
@@ -396,9 +412,9 @@ impl WebhookManager {
     }
 
     #[cfg(test)]
-    pub fn test_passes_filters(&self, msg: &ModemSMS) -> bool {
+    pub async fn test_passes_filters(&self, msg: &ModemSMS) -> bool {
         if let Some(config) = self.configs.first() {
-            self.passes_filters(config, msg)
+            self.passes_filters(config, msg).await
         } else {
             false
         }

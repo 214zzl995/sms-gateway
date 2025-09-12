@@ -12,10 +12,10 @@ fn create_test_sms() -> ModemSMS {
     ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     }
 }
 
@@ -25,7 +25,7 @@ fn create_simple_webhook_config(url: &str) -> WebhookConfig {
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@"}}'''
 
 [headers]
 Content-Type = "application/json"
@@ -49,7 +49,7 @@ body = '''{{"contact":"@contact@","extracted_code":"@message::\[(\d+)\]::1@","na
 Content-Type = "application/json"
 
 [url_params]
-id = "@device@"
+id = "@sim@"
 code = '''@message::\[(\d+)\]@'''
 
 "#,
@@ -65,10 +65,10 @@ fn create_filtered_webhook_config(url: &str) -> WebhookConfig {
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@"}}'''
 
 contact_filter = ["13800138000", "13900139000"]
-device_filter = ["test_device"]
+sim_filter = ["SIM-m_id"]
 include_self_sent = false
 
 [headers]
@@ -99,7 +99,7 @@ async fn test_simple_webhook() {
     let expected_body = json!({
         "contact": "13800138000",
         "message": "Test message content",
-        "device": "test_device"
+        "sim": "SIM-m_id"  // This will be the alias now
     });
 
     Mock::given(method("POST"))
@@ -140,7 +140,7 @@ async fn test_regex_extraction_webhook() {
         .and(path("/regex-webhook"))
         .and(body_json(&expected_body))
         .and(header("Content-Type", "application/json"))
-        .and(wiremock::matchers::query_param("id", "test_device"))
+        .and(wiremock::matchers::query_param("id", "SIM-m_id"))
         .and(wiremock::matchers::query_param("code", "67890"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "success"})))
         .expect(1)
@@ -168,18 +168,18 @@ async fn test_contact_filter() {
     let matching_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
     let non_matching_sms = ModemSMS {
         contact: "13700137000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -208,19 +208,19 @@ async fn test_device_filter() {
     let matching_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let non_matching_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "other_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "different_device".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -248,28 +248,28 @@ async fn test_message_filter() {
     let matching_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(), 
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let contains_ignore_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message ignore content".to_string(), 
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let regex_mismatch_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message something".to_string(), 
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -298,28 +298,28 @@ async fn test_time_filter() {
     let working_hours_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(), 
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let off_hours_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 20:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let weekend_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-24 10:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(), 
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -349,10 +349,10 @@ async fn test_include_self_sent_enabled() {
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@","send":"@send@"}}'''
 
 contact_filter = ["13800138000", "13900139000"]
-device_filter = ["test_device"]
+sim_filter = ["SIM-m_id"]
 include_self_sent = true
 
 [headers]
@@ -366,19 +366,19 @@ Content-Type = "application/json"
     let self_sent_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from sent".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: true,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let received_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from received".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -407,10 +407,10 @@ async fn test_include_self_sent_disabled() {
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@","send":"@send@"}}'''
 
 contact_filter = ["13800138000", "13900139000"]
-device_filter = ["test_device"]
+sim_filter = ["SIM-m_id"]
 include_self_sent = false
 
 [headers]
@@ -424,19 +424,19 @@ Content-Type = "application/json"
     let self_sent_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from sent".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: true,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let received_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from received".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -444,7 +444,7 @@ Content-Type = "application/json"
         .and(body_json(&json!({
             "contact": "13800138000",
             "message": "Test message content from received",
-            "device": "test_device",
+            "sim": "SIM-m_id",
             "send": "false"
         })))
         .respond_with(ResponseTemplate::new(200))
@@ -471,10 +471,10 @@ async fn test_include_self_sent_default() {
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@","send":"@send@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@","send":"@send@"}}'''
 
 contact_filter = ["13800138000", "13900139000"]
-device_filter = ["test_device"]
+sim_filter = ["SIM-m_id"]
 
 [headers]
 Content-Type = "application/json"
@@ -487,19 +487,19 @@ Content-Type = "application/json"
     let self_sent_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from sent".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: true,
+        sim_id: "test_sim_id".to_string(),
     };
 
     let received_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message content from received".to_string(),
-        device: "test_device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:01:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
 
     Mock::given(method("POST"))
@@ -507,7 +507,7 @@ Content-Type = "application/json"
         .and(body_json(&json!({
             "contact": "13800138000",
             "message": "Test message content from received",
-            "device": "test_device",
+            "sim": "SIM-m_id",
             "send": "false"
         })))
         .respond_with(ResponseTemplate::new(200))
@@ -531,41 +531,41 @@ async fn test_url_encoding_fix() {
     let test_sms = ModemSMS {
         contact: "13800138000".to_string(),
         message: "Test message with special chars: 你好世界 & spaces".to_string(),
-        device: "test device".to_string(),
         timestamp: NaiveDateTime::parse_from_str("2025-05-23 15:00:00", "%Y-%m-%d %H:%M:%S")
             .unwrap(),
         send: false,
+        sim_id: "test_sim_id".to_string(),
     };
     let expected_body = json!({
         "contact": "13800138000",
         "message": "Test message with special chars: 你好世界 & spaces",
-        "device": "test device"
+        "sim": "SIM-m_id"
     });
 
     Mock::given(method("POST"))
-        .and(path("/webhook/test%20device"))  
+        .and(path("/webhook/SIM-m_id"))  
         .and(body_json(&expected_body))
         .and(header("Content-Type", "application/json"))
-        .and(wiremock::matchers::query_param("device", "test%20device"))  // 参数值应该被编码
+        .and(wiremock::matchers::query_param("sim", "SIM-m_id"))  // 参数值应该被编码
         .and(wiremock::matchers::query_param("message", "Test%20message%20with%20special%20chars%3A%20%E4%BD%A0%E5%A5%BD%E4%B8%96%E7%95%8C%20%26%20spaces"))  // 参数值应该被编码
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "success"})))
         .expect(1)
         .mount(&mock_server)
         .await;
 
-    let webhook_url = format!("{}/webhook/@device@", mock_server.uri());
+    let webhook_url = format!("{}/webhook/@sim@", mock_server.uri());
     let toml = format!(
         r#"
 url = "{url}"
 method = "POST"
 timeout = 5
-body = '''{{"contact":"@contact@","message":"@message@","device":"@device@"}}'''
+body = '''{{"contact":"@contact@","message":"@message@","sim":"@sim@"}}'''
 
 [headers]
 Content-Type = "application/json"
 
 [url_params]
-device = "@device@"
+sim = "@sim@"
 message = "@message@"
 
 "#,
