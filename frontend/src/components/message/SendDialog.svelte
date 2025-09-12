@@ -1,11 +1,11 @@
 <script>
     import { fly, fade } from "svelte/transition";
-    import { apiClient } from "../js/api";
-    import { devices } from "../stores/devices";
+    import { apiClient } from "../../js/api";
+    import { simCards } from "../../stores/simcards";
 
     // 组件状态
     let { value = $bindable() } = $props();
-    let selectedDevice = $state("");
+    let selectedSim = $state("");
     let recipient = $state("");
     let message = $state("");
     let isLoading = $state(false);
@@ -32,7 +32,7 @@
 
         isLoading = true;
         try {
-            await apiClient.sendSms(selectedDevice, recipient, message);
+            await apiClient.sendSms(selectedSim, recipient, message);
             close();
         } catch (err) {
             error = err.message || "发送失败，请稍后重试";
@@ -44,7 +44,7 @@
     // 表单验证
     const validateForm = () => {
         error = "";
-        if (!selectedDevice) error = "请选择设备";
+        if (!selectedSim) error = "请选择SIM卡";
         else if (!/^\d{7,15}$/.test(recipient)) error = "请输入有效的电话号码";
         else if (!message.trim()) error = "请输入消息内容";
         return !error;
@@ -52,7 +52,7 @@
 
     // 重置表单
     const resetForm = () => {
-        selectedDevice = "";
+        selectedSim = "";
         recipient = "";
         message = "";
         error = "";
@@ -93,11 +93,11 @@
                     选择设备:
                     <select
                         class="block w-full mt-2 px-3 py-2 rounded border border-gray-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition"
-                        bind:value={selectedDevice}
+                        bind:value={selectedSim}
                     >
-                        <option value="" disabled>请选择设备</option>
-                        {#each $devices as device (device.name)}
-                            <option value={device.name}>{device.name}</option>
+                        <option value="" disabled>请选择SIM卡</option>
+                        {#each $simCards as simCard (simCard.id)}
+                            <option value={simCard.id}>{simCard.alias || simCard.phone_number || simCard.id.slice(-8)}</option>
                         {/each}
                     </select>
                 </label>
