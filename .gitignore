@@ -4,3 +4,7 @@
 /frontend/.env
 /frontend/.env.local
 .DS_Store
+/data
+/logs
+/TODO.md
+/CLAUDE.md

@@ -80,11 +80,11 @@ const connectSSE = () => {
 
         const updatedCurrentConv = newConversations.find(conv => conv.contact.id === currentConvId);
 
-        if (updatedCurrentConv && updatedCurrentConv.sms_preview.status === SmsStatus.Unread && currentConvId !== -1) {
+        if (updatedCurrentConv && currentConvId !== -1) {
 
             apiClient.markConversationAsReadAndGetLatest(currentConvId).then(res => {
                 if (res && res.data && res.data.length > 0) {
-                    window.dispatchEvent(new CustomEvent('update-messages', {
+                    window.dispatchEvent(new CustomEvent("update-messages", {
                         detail: {
                             messages: res.data,
                             silentUpdate: true
@@ -161,7 +161,7 @@ export const initConversation = () => {
                                 message: "",
                                 status: SmsStatus.Read,
                                 timestamp: new Date().toISOString(),
-                                device: ""
+                                sim_id: ""
                             }
                         }, ...currentConversations];
                     });
@@ -287,14 +287,14 @@ export const markConversationAsRead = (/** @type {string} */ contactId) => {
  * 更新会话的最后一条消息信息
  * @param {string} contactId - 联系人ID
  * @param {string} message - 最新消息内容
- * @param {Object} device - 设备信息对象
+ * @param {string} simId - SIM卡ID
  * @param {string} contactName - 联系人名称
  * @returns {void}
  */
 export const updateConversationLastMessage = (
     /** @type {string} */ contactId,
     /** @type {string} */ message,
-    /** @type {any} */ device,
+    /** @type {string} */ simId,
     /** @type {string} */ contactName,
 ) => {
     if (contactId === undefined || contactId === null) {
@@ -321,7 +321,7 @@ export const updateConversationLastMessage = (
                     },
                     sms_preview: {
                         ...conv.sms_preview,
-                        device: device,
+                        sim_id: simId,
                         message: message,
                         timestamp: new Date().toISOString(),
                         status: SmsStatus.Read

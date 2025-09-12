@@ -30,49 +30,76 @@ class ApiClient {
         const params = {
             page: page,
             per_page: perPage,
-            contact_id: contactId 
+            contact_id: contactId
         };
 
         return FetchApi.get('/api/sms', params, undefined, { signal });
     }    /**
      * Send an SMS
-     * @param {string} modemId - Modem ID
+     * @param {string} simId - Modem ID
      * @param {object} contact - Target phone number
      * @param {string} message - SMS content
      * @param {boolean} new_message - Whether to send a new message
      */
-    async sendSms(modemId, contact, message, new_message) {
-        const payload = { modem_id: modemId, contact, message, new: new_message};
+    async sendSms(simId, contact, message, new_message) {
+        const payload = { sim_id: simId, contact, message, new: new_message };
         return FetchApi.post('/api/sms', payload)
     }
 
     /**
-     * @param {any} modemId
+     * @param {any} simId
      */
-    async getModemsInfo(modemId) {
-        return FetchApi.get(`/api/device/${modemId}`)
+    async getSimInfo(simId) {
+        return await FetchApi.get(`/api/sims/${simId}/info`);
     }
 
     /**
-     * Get all modem information
+     * Get all SIM dynamic information
      */
-    async getAllModems() {
-        return FetchApi.get('/api/device');
+    async getAllSimsInfo() {
+        return FetchApi.get('/api/sims/info');
     }
 
     /**
-     * @param {any} modemId
+     * @param {any} simId
      */
-    async refreshSms(modemId){
-        return FetchApi.get(`/api/refresh/${modemId}`)
+    async refreshSms(simId) {
+        return FetchApi.get(`/api/sims/${simId}/refresh`)
     }
 
-    async getConversation(){
+    async getConversation() {
         return FetchApi.get('/api/conversation')
     }
 
     async markConversationAsReadAndGetLatest(contactId) {
         return FetchApi.post(`/api/conversations/${contactId}/unread`);
+    }
+
+    /**
+     * Get all SIM cards information
+     */
+    async getAllSimCards() {
+        return FetchApi.get('/api/sim-cards', {}, 'application/json', {});
+    }
+
+    /**
+     * Update SIM card alias
+     * @param {number} simId - SIM card ID
+     * @param {string} alias - New alias
+     */
+    async updateSimCardAlias(simId, alias) {
+        const payload = { alias };
+        return FetchApi.put(`/api/sim-cards/${simId}/alias`, payload, {}, 'application/json');
+    }
+
+    /**
+     * Update SIM card phone number
+     * @param {number} simId - SIM card ID
+     * @param {string} phoneNumber - New phone number
+     */
+    async updateSimCardPhoneNumber(simId, phoneNumber) {
+        const payload = { phone_number: phoneNumber };
+        return FetchApi.put(`/api/sim-cards/${simId}/phone`, payload, {}, 'application/json');
     }
 }
 

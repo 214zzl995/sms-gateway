@@ -8,7 +8,7 @@ use std::{collections::HashMap, fmt, path::Path, str::FromStr};
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
     pub settings: Settings,
-    pub devices: HashMap<String, Device>,
+    pub devices: Vec<Device>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -20,12 +20,22 @@ pub struct Settings {
     pub read_sms_frequency: u64,
     pub webhooks_max_concurrent: Option<usize>,
     pub webhooks: Option<Vec<WebhookConfig>>,
+    pub sms_storage: Option<SmsStorage>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Device {
     pub com_port: String,
     pub baud_rate: u32,
+    pub sms_storage: Option<SmsStorage>,
+}
+
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum SmsStorage {
+    SIM,  // Store on SIM card
+    ME,   // Store in module memory
+    MT,   // Use module default
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,7 +105,7 @@ pub struct WebhookConfig {
 
     // Filters
     pub contact_filter: Option<Vec<String>>, // List of contacts to include
-    pub device_filter: Option<Vec<String>>,  // List of devices to include
+    pub sim_filter: Option<Vec<String>>,     // List of SIM cards to include
     pub time_filter: Option<TimeFilter>,     // Time-based filtering
     pub message_filter: Option<MessageFilter>, // Content-based filtering
     pub include_self_sent: Option<bool>, // If true, include messages sent by the user in webhook
@@ -134,7 +144,7 @@ pub enum SegmentName {
     Contact,
     Timestamp,
     Message,
-    Device,
+    Sim,
     Send,
 }
 
@@ -168,12 +178,16 @@ fn test_config(app_config: &AppConfig) -> Result<()> {
     }
 
     // Validate DEVICES section
-    for (key, device) in &app_config.devices {
+    if app_config.devices.is_empty() {
+        anyhow::bail!("Fatal: No devices configured");
+    }
+    
+    for (index, device) in app_config.devices.iter().enumerate() {
         if device.com_port.trim().is_empty() {
-            anyhow::bail!("Fatal: Device {} com_port is not set", key);
+            anyhow::bail!("Fatal: Device {} com_port is not set", index);
         }
         if device.baud_rate == 0 {
-            anyhow::bail!("Fatal: Device {} baud_rate is not set", key);
+            anyhow::bail!("Fatal: Device {} baud_rate is not set", index);
         }
     }
 
@@ -197,7 +211,7 @@ impl<'de> Deserialize<'de> for WebhookConfig {
             pub url_params: Option<HashMap<String, String>>,
             pub timeout: Option<u64>,
             pub contact_filter: Option<Vec<String>>,
-            pub device_filter: Option<Vec<String>>,
+            pub sim_filter: Option<Vec<String>>,
             pub time_filter: Option<TimeFilter>,
             pub message_filter: Option<MessageFilterDeserializer>,
             pub include_self_sent: Option<bool>,
@@ -283,9 +297,9 @@ impl<'de> Deserialize<'de> for WebhookConfig {
                 "contact" => Ok(SegmentName::Contact),
                 "timestamp" => Ok(SegmentName::Timestamp),
                 "message" => Ok(SegmentName::Message),
-                "device" => Ok(SegmentName::Device),
+                "sim" => Ok(SegmentName::Sim),
                 "send" => Ok(SegmentName::Send),
-                _ => Err(format!("Unknown segment name: '{}'. Valid names are: contact, timestamp, message, device, send", s)),
+                _ => Err(format!("Unknown segment name: '{}'. Valid names are: contact, timestamp, message, sim, send", s)),
             }
         }
 
@@ -321,9 +335,9 @@ impl<'de> Deserialize<'de> for WebhookConfig {
         let raw = WebhookConfigDeserializer::deserialize(deserializer)
             .map_err(|e| D::Error::custom(format!("Failed to deserialize WebhookConfig: {}", e)))?;
 
-        validate_url(&raw.url).map_err(|e| D::Error::custom(e))?;
+        validate_url(&raw.url).map_err(D::Error::custom)?;
 
-        let method = Method::from_str(&raw.method).map_err(|e| D::Error::custom(e))?;
+        let method = Method::from_str(&raw.method).map_err(D::Error::custom)?;
 
         let url = parse_template_segments(&raw.url)
             .map_err(|e| D::Error::custom(format!("Invalid URL template: {}", e)))?;
@@ -395,7 +409,7 @@ impl<'de> Deserialize<'de> for WebhookConfig {
             None => None,
         };
 
-        validate_time_filter(&raw.time_filter).map_err(|e| D::Error::custom(e))?;
+        validate_time_filter(&raw.time_filter).map_err(D::Error::custom)?;
 
         if let Some(timeout) = raw.timeout {
             if timeout == 0 {
@@ -411,7 +425,7 @@ impl<'de> Deserialize<'de> for WebhookConfig {
             url_params,
             timeout: raw.timeout,
             contact_filter: raw.contact_filter,
-            device_filter: raw.device_filter,
+            sim_filter: raw.sim_filter,
             time_filter: raw.time_filter,
             message_filter,
             include_self_sent: raw.include_self_sent,
