@@ -9,17 +9,17 @@
 
 ## 📖 Overview
 
-SMS Gateway is a comprehensive solution for receiving, sending, and forwarding SMS messages through GSM modems. It provides a web-based interface for managing SMS and offers powerful webhook functionality with extensive filtering capabilities.
+SMS Gateway is a comprehensive solution for receiving, sending, and forwarding SMS messages through GSM modems. It provides a modern web-based interface for managing SMS conversations and offers powerful webhook functionality with extensive filtering capabilities.
 
 ### Key Features
 
-- Connect to multiple GSM modems simultaneously
-- Receive and send SMS messages
-- Web interface for easy management
-- Forward SMS to external services via webhooks
-- Advanced message filtering system
-- Configurable via TOML configuration file
-- PDU decoding and encoding support
+- **Multi-device Support**: Connect to multiple GSM modems simultaneously
+- **Real-time Messaging**: Send and receive SMS with live updates via SSE
+- **Modern Web Interface**: Intuitive conversation-based UI with SIM card management
+- **Powerful Webhooks**: Forward SMS to external services with advanced filtering
+- **SIM-centric Architecture**: Manage multiple SIM cards with individual settings
+- **Flexible Configuration**: TOML-based configuration with comprehensive options
+- **PDU Support**: Full PDU encoding/decoding with UCS2 character support
 
 ## 🛠️ Building From Source
 
@@ -78,68 +78,52 @@ The application is configured using a TOML file. By default, it looks for the co
 - Debug mode: `./config.toml`
 - Release mode: `/etc/sms-gateway/config.toml`
 
-### Main Configuration Sections
+Copy `config.toml.example` to `config.toml` and modify according to your setup:
 
-#### Server Settings
+```bash
+cp config.toml.example config.toml
+```
 
-Settings for the web server and general application behavior in the [`[settings]`](./config.toml#L1-L6) section:
+### Basic Configuration
 
 ```toml
 [settings]
-server_host = "0.0.0.0"  # Host to bind the server to
-server_port = 8951       # Port for the web interface
-username = "admin"       # Web interface username
-password = "password"    # Web interface password
-read_sms_frequency = 60  # How often to check for new SMS (in seconds)
-webhooks_max_concurrent = 10  # Maximum concurrent webhook requests
+server_host = "0.0.0.0"
+server_port = 8080
+username = "admin"
+password = "your_secure_password"
+read_sms_frequency = 30
+
+# Multiple device support
+[[devices]]
+com_port = "/dev/ttyUSB0"
+baud_rate = 115200
+
+[[devices]]
+com_port = "/dev/ttyUSB1"
+baud_rate = 115200
 ```
 
-#### Device Configuration
-
-Configure GSM modems in the [`[devices]`](./config.toml#L8-L10) section:
-
-```toml
-[devices.default]  # "default" is the device name
-com_port = "/dev/ttyUSB1"  # Serial port path
-baud_rate = 115200         # Baud rate for serial communication
-```
-
-You can add multiple devices by creating additional sections like `[devices.another]`.
-
-#### Webhook Configuration
-
-Configure webhooks in the [`[[settings.webhooks]]`](./config.toml#L12-L19) section:
+### Webhook Configuration
 
 ```toml
 [[settings.webhooks]]
-url = "http://example.com/webhook"  # Target URL
-method = "POST"                     # HTTP method
-headers = { "Content-Type" = "application/json" }  # Custom headers
-body = """
+url = "https://your-endpoint.com/webhook"
+method = "POST"
+
+[settings.webhooks.headers]
+"Content-Type" = "application/json"
+
+body = '''
 {
-    "phone": "${contact}",
-    "message": "${message}"
+    "from": "@contact@",
+    "message": "@message@",
+    "timestamp": "@timestamp@"
 }
-"""  # Request body template
+'''
 ```
 
-### Advanced Webhook Filtering
-
-The webhook system supports comprehensive filtering:
-
-```toml
-[[settings.webhooks]]
-url = "http://example.com/webhook"
-contact_filter = ["123456789"]  # Only process messages from these numbers
-device_filter = ["default"]     # Only process messages from these devices
-include_self_sent = false       # Exclude messages sent by the user
-
-# Time-based filtering
-time_filter = { start_time = "09:00:00", end_time = "17:00:00", days_of_week = [1, 2, 3, 4, 5] }
-
-# Content-based filtering
-message_filter = { contains = ["important"], not_contains = ["spam"], regex = "code:[0-9]{6}" }
-```
+For detailed configuration options including filtering, see `config.toml.example`.
 
 ## 📝 License
 
