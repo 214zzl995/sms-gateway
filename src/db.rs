@@ -1,6 +1,5 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use log;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
@@ -17,12 +16,12 @@ static POOL: OnceLock<SqlitePool> = OnceLock::new();
 
 /// Represents a single SMS message
 #[derive(Debug, FromRow, Deserialize, Serialize, Default)]
-pub struct SMS {
+pub struct Sms {
     pub id: i64,
     pub contact_id: String,
     pub timestamp: NaiveDateTime,
     pub message: String,
-    pub device: String,
+    pub sim_id: String,
     pub send: bool,
     pub status: SmsStatus,
 }
@@ -60,8 +59,8 @@ pub struct ModemSMS {
     pub contact: String,
     pub timestamp: NaiveDateTime,
     pub message: String,
-    pub device: String,
     pub send: bool,
+    pub sim_id: String,
 }
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
@@ -72,10 +71,21 @@ pub struct Contact {
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
 pub struct SMSPreview {
-    pub device: String,
     pub message: String,
     pub timestamp: NaiveDateTime,
     pub status: SmsStatus,
+    pub sim_id: String,
+}
+
+#[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
+pub struct SimCard {
+    pub id: String,                     // ICCID
+    pub imsi: Option<String>,
+    pub phone_number: Option<String>,   // Phone number from SIM
+    pub alias: Option<String>,          // User-defined alias
+    // Note: port_path removed - SIM to port mapping is runtime only
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, FromRow, Deserialize, Serialize, Default, Clone)]
@@ -86,7 +96,7 @@ pub struct Conversation {
     pub sms_preview: SMSPreview,
 }
 
-impl SMS {
+impl Sms {
     pub async fn count() -> Result<i64> {
         let pool = get_pool()?;
         let count = sqlx::query_scalar(
@@ -99,18 +109,6 @@ impl SMS {
         Ok(count)
     }
 
-    pub async fn count_by_device(device: &str) -> Result<i64> {
-        let pool = get_pool()?;
-        let count = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*) FROM sms WHERE device = ?
-            "#,
-        )
-        .bind(device)
-        .fetch_one(pool)
-        .await?;
-        Ok(count)
-    }
     pub async fn count_by_contact_id(contact_id: &str) -> Result<i64> {
         let pool = get_pool()?;
         let count = sqlx::query_scalar(
@@ -134,7 +132,7 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status
+            SELECT id, contact_id, timestamp, message, sim_id, send, status
             FROM sms 
             ORDER BY timestamp DESC
             LIMIT ? OFFSET ?
@@ -145,7 +143,7 @@ impl SMS {
         .fetch_all(pool)
         .await?;
 
-        let total = SMS::count().await?;
+        let total = Sms::count().await?;
 
         Ok((sms_list, total))
     }
@@ -164,10 +162,10 @@ impl SMS {
 
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status
+            SELECT id, contact_id, timestamp, message, sim_id, send, status
             FROM sms 
             WHERE contact_id = ?
-            ORDER BY timestamp DESC
+            ORDER BY timestamp DESC, id DESC
             LIMIT ? OFFSET ?
             "#,
         )
@@ -194,7 +192,7 @@ impl SMS {
 
         tx.commit().await?;
 
-        let total = SMS::count_by_contact_id(contact_id).await?;
+        let total = Sms::count_by_contact_id(contact_id).await?;
 
         Ok((sms_list, total))
     }
@@ -203,15 +201,15 @@ impl SMS {
         let pool = get_pool()?;
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO sms (contact_id, timestamp, message, device, send, status)
+            INSERT INTO sms (contact_id, timestamp, message, sim_id, send, status)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
         .bind(&self.contact_id)
-        .bind(&self.timestamp)
+        .bind(self.timestamp)
         .bind(&self.message)
-        .bind(&self.device)
-        .bind(&self.send)
+        .bind(&self.sim_id)
+        .bind(self.send)
         .bind(self.status as i32)
         .fetch_one(pool)
         .await?;
@@ -223,7 +221,7 @@ impl SMS {
         let mut tx = pool.begin().await?;
         let sms_list = sqlx::query_as(
             r#"
-            SELECT id, contact_id, timestamp, message, device, send, status
+            SELECT id, contact_id, timestamp, message, sim_id, send, status
             FROM sms 
             WHERE contact_id = ? AND status = ?
             ORDER BY timestamp DESC
@@ -387,12 +385,190 @@ impl Contact {
 
 }
 
+impl SimCard {
+    /// 1. 根据条件查询
+    pub async fn find_by_conditions(
+        id: Option<&str>,
+        imsi: Option<&str>,
+        alias: Option<&str>,
+        phone_number: Option<&str>
+    ) -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let mut query = String::from("SELECT id, imsi, phone_number, alias, created_at, updated_at FROM sim_cards WHERE 1=1");
+        let mut binds = Vec::new();
+
+        if let Some(id) = id {
+            query.push_str(" AND id = ?");
+            binds.push(id);
+        }
+        if let Some(imsi) = imsi {
+            query.push_str(" AND imsi = ?");
+            binds.push(imsi);
+        }
+        if let Some(alias) = alias {
+            query.push_str(" AND alias = ?");
+            binds.push(alias);
+        }
+        if let Some(phone_number) = phone_number {
+            query.push_str(" AND phone_number = ?");
+            binds.push(phone_number);
+        }
+
+        let mut query_builder = sqlx::query_as::<_, SimCard>(&query);
+        for bind in binds {
+            query_builder = query_builder.bind(bind);
+        }
+        
+        Ok(query_builder.fetch_all(pool).await?)
+    }
+
+    /// 2. 更新手机号
+    pub async fn update_phone_number(&mut self, phone_number: Option<String>) -> Result<()> {
+        let pool = get_pool()?;
+        self.phone_number = phone_number.clone();
+        sqlx::query("UPDATE sim_cards SET phone_number = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+            .bind(&phone_number)
+            .bind(&self.id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 3. 更新别名
+    pub async fn update_alias(&mut self, alias: Option<String>) -> Result<()> {
+        let pool = get_pool()?;
+        self.alias = alias.clone();
+        sqlx::query("UPDATE sim_cards SET alias = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+            .bind(&alias)
+            .bind(&self.id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 4. 删除
+    pub async fn delete(&self) -> Result<bool> {
+        let pool = get_pool()?;
+        let result = sqlx::query("DELETE FROM sim_cards WHERE id = ?")
+            .bind(&self.id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// 5. 新增 - 批量插入
+    pub async fn bulk_insert(sim_cards: &[Self]) -> Result<()> {
+        if sim_cards.is_empty() {
+            return Ok(());
+        }
+
+        let pool = get_pool()?;
+        let mut transaction = pool.begin().await?;
+
+        for chunk in sim_cards.chunks(MAX_BATCH_SIZE) {
+            let mut query_builder = QueryBuilder::new(
+                "INSERT INTO sim_cards (id, imsi, phone_number, alias, created_at, updated_at) "
+            );
+            query_builder.push_values(chunk, |mut b, sim_card| {
+                b.push_bind(&sim_card.id)
+                    .push_bind(&sim_card.imsi)
+                    .push_bind(&sim_card.phone_number)
+                    .push_bind(&sim_card.alias)
+                    .push_bind(sim_card.created_at)
+                    .push_bind(sim_card.updated_at);
+            });
+            query_builder.build().execute(&mut *transaction).await?;
+        }
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    /// 5. 新增 - 单条插入（调用批量插入）
+    pub async fn insert(&self) -> Result<()> {
+        Self::bulk_insert(std::slice::from_ref(self)).await
+    }
+
+    /// 6. 查询全部
+    pub async fn query_all() -> Result<Vec<Self>> {
+        let pool = get_pool()?;
+        let sim_cards = sqlx::query_as::<_, SimCard>(
+            "SELECT id, imsi, phone_number, alias, created_at, updated_at FROM sim_cards ORDER BY created_at"
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(sim_cards)
+    }
+
+    /// 工具方法：获取有效别名（非数据库操作）
+    pub fn get_effective_alias(&self) -> String {
+        self.alias.as_ref()
+            .filter(|a| !a.trim().is_empty())
+            .cloned()
+            .or_else(|| self.phone_number.as_ref().filter(|p| !p.trim().is_empty()).cloned())
+            .unwrap_or_else(|| format!("SIM-{}", &self.id[self.id.len().saturating_sub(4)..]))
+    }
+
+    /// 兼容性方法：根据ID批量查询（返回HashMap）
+    pub async fn get_by_ids(ids: &[&str]) -> Result<HashMap<String, Self>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let pool = get_pool()?;
+        let mut query_builder = QueryBuilder::new(
+            "SELECT id, imsi, phone_number, alias, created_at, updated_at FROM sim_cards WHERE id IN ("
+        );
+        let mut separated = query_builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+
+        let sim_cards: Vec<SimCard> = query_builder.build_query_as().fetch_all(pool).await?;
+        Ok(sim_cards.into_iter().map(|s| (s.id.clone(), s)).collect())
+    }
+
+    /// 兼容性方法：查找或创建（带手机号）
+    pub async fn find_or_create_with_phone(id: &str, imsi: Option<String>, phone_number: Option<String>) -> Result<Self> {
+        let existing = Self::find_by_conditions(Some(id), None, None, None).await?;
+        
+        if let Some(mut sim_card) = existing.into_iter().next() {
+            // For existing SIM cards, only update IMSI if changed
+            // Never update phone_number - it should only be modified by users
+            if sim_card.imsi != imsi {
+                sim_card.imsi = imsi;
+                let pool = get_pool()?;
+                sqlx::query("UPDATE sim_cards SET imsi = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+                    .bind(&sim_card.imsi)
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            return Ok(sim_card);
+        }
+
+        // Only create new SIM card with baseband phone_number on first initialization
+        let now = chrono::Utc::now().naive_utc();
+        let sim_card = SimCard {
+            id: id.to_string(),
+            imsi,
+            phone_number,
+            alias: None,
+            created_at: now,
+            updated_at: now,
+        };
+        sim_card.insert().await?;
+        Ok(sim_card)
+    }
+}
+
 impl Conversation {
     pub async fn query_all() -> Result<Vec<Self>> {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, status , device FROM v_contacts ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status, sim_id FROM v_contacts_with_sim ORDER BY timestamp DESC"
         )
         .fetch_all(pool)
         .await?;
@@ -404,7 +580,7 @@ impl Conversation {
         let pool = get_pool()?;
 
         let conversations = sqlx::query_as(
-              "SELECT id, name, timestamp, message, status, device FROM v_contacts where status = ? ORDER BY timestamp DESC"
+              "SELECT id, name, timestamp, message, status, sim_id FROM v_contacts_with_sim where status = ? ORDER BY timestamp DESC"
         )
         .bind(SmsStatus::Unread as i32)
         .fetch_all(pool)
@@ -420,7 +596,7 @@ impl Conversation {
         }
 
         let mut query_builder = QueryBuilder::new(
-            "SELECT id, name, timestamp, message, status, device FROM v_contacts WHERE id IN (",
+            "SELECT id, name, timestamp, message, status, sim_id FROM v_contacts_with_sim WHERE id IN (",
         );
 
         let mut separated = query_builder.separated(", ");
@@ -511,15 +687,15 @@ impl ModemSMS {
         //When send is true, status defaults to Read
         let sms_id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO sms (contact_id, timestamp, message, device, send, status)
+            INSERT INTO sms (contact_id, timestamp, message, sim_id, send, status)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             "#,
         )
         .bind(contact_id)
-        .bind(&self.timestamp)
+        .bind(self.timestamp)
         .bind(&self.message)
-        .bind(&self.device)
-        .bind(&self.send)
+        .bind(&self.sim_id)
+        .bind(self.send)
         .bind(if self.send {
             SmsStatus::Read as i32
         } else {
@@ -541,8 +717,7 @@ impl ModemSMS {
         }
 
         let contact_names = contact_names
-            .iter()
-            .map(|contact| contact.clone())
+            .iter().cloned()
             .collect::<Vec<String>>();
 
         // 查询已存在的联系人
@@ -587,15 +762,15 @@ impl ModemSMS {
 
         for chunk in records.chunks(MAX_BATCH_SIZE) {
             let mut query_builder = QueryBuilder::new(
-                "INSERT INTO sms (contact_id, timestamp, message, device, send, status) ",
+                "INSERT INTO sms (contact_id, timestamp, message, sim_id, send, status) ",
             );
 
             query_builder.push_values(chunk, |mut b, sms| {
                 b.push_bind(contact_map.get(&sms.contact))
-                    .push_bind(&sms.timestamp)
+                    .push_bind(sms.timestamp)
                     .push_bind(&sms.message)
-                    .push_bind(&sms.device)
-                    .push_bind(&sms.send)
+                    .push_bind(&sms.sim_id)
+                    .push_bind(sms.send)
                     .push_bind(if sms.send {
                         SmsStatus::Read as i32
                     } else {
@@ -608,13 +783,26 @@ impl ModemSMS {
 
         transaction.commit().await?;
 
-        Ok(contact_map.into_iter().map(|(_, id)| id).collect())
+        Ok(contact_map.into_values().collect())
     }
 }
 
 /// Initializes SQLite database
 pub async fn db_init() -> Result<()> {
+    #[cfg(debug_assertions)]
+    let db_path = "sqlite://./data/data.db";
+    #[cfg(not(debug_assertions))]
     let db_path = "sqlite:///var/lib/sms-gateway/data.db";
+
+    // Ensure directory exists before creating database
+    #[cfg(debug_assertions)]
+    {
+        std::fs::create_dir_all("./data")?;
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        std::fs::create_dir_all("/var/lib/sms-gateway")?;
+    }
 
     if !sqlx::Sqlite::database_exists(db_path).await? {
         sqlx::Sqlite::create_database(db_path).await?;
