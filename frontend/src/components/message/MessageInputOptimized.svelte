@@ -36,22 +36,28 @@
     <div class="flex-1 flex items-center gap-3 relative">
 
       <div
-        class="flex-1 transition-all duration-300 ease-out"
+        class="flex-1 transition-all duration-300 ease-out relative"
         class:opacity-50={showNewMessage && !concatInputText.trim()}
         class:pointer-events-none={showNewMessage && !concatInputText.trim()}
       >
-        <input
-          type="text"
-          bind:value={sendMessageContent}
-          oncompositionstart={() => (isComposing = true)}
-          oncompositionend={() => (isComposing = false)}
-          onkeydown={handleKeyDown}
-          disabled={showNewMessage && !concatInputText.trim()}
-          placeholder={showNewMessage && !concatInputText.trim()
-            ? "Enter contact first"
-            : "Type your message..."}
-          class="w-full h-12 px-4 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-all duration-200 outline-none focus:border-gray-400 dark:focus:border-zinc-600 hover:border-gray-300 dark:hover:border-zinc-600"
-        />
+        <div class="relative">
+          <Icon
+            icon="carbon:chat"
+            class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500 pointer-events-none"
+          />
+          <input
+            type="text"
+            bind:value={sendMessageContent}
+            oncompositionstart={() => (isComposing = true)}
+            oncompositionend={() => (isComposing = false)}
+            onkeydown={handleKeyDown}
+            disabled={showNewMessage && !concatInputText.trim()}
+            placeholder={showNewMessage && !concatInputText.trim()
+              ? "Enter contact first"
+              : "Type your message..."}
+            class="w-full h-12 pl-11 pr-4 bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-700 rounded-xl text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 transition-all duration-200 outline-none focus:border-gray-400 dark:focus:border-zinc-600 hover:border-gray-300 dark:hover:border-zinc-600"
+          />
+        </div>
       </div>
     </div>
 
