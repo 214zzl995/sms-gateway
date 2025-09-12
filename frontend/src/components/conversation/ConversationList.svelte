@@ -1,6 +1,6 @@
 <script>
   import Icon from "@iconify/svelte";
-  import { formatDate } from "../js/dateFormat";
+  import { formatDate } from "../../js/dateFormat";
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import {
@@ -8,11 +8,11 @@
     currentContact,
     changeCurrentConversation,
     conversationLoading,
-    deleteConversation,
-    createNewContactName,
-  } from "../stores/conversation";
-  import { apiClient } from "../js/api";
-  import { generateUUID } from "../js/uuid";
+    deleteConversation
+  } from "../../stores/conversation";
+  import { apiClient } from "../../js/api";
+  import { generateUUID } from "../../js/uuid";
+  import { simCards } from "../../stores/simcards";
 
   const SmsStatus = {
     Unread: 0,
@@ -23,6 +23,19 @@
 
   let searchTemporaryIsActive = $state(false);
   let searchTemporaryValue = $state("");
+
+  // Function to get SIM card alias by ID
+  function getSimCardDisplayName(simId) {
+    if (!simId) {
+      return "Unknown SIM";
+    }
+    
+    const simCard = $simCards.find(sim => sim.id === simId);
+    if (simCard) {
+      return simCard.alias || simCard.phone_number || `SIM ${simId.slice(-8)}`;
+    }
+    return `SIM ${simId.slice(-8)}`;
+  }
 
   let filteredConversations = $derived(
     $conversationLoading
@@ -128,7 +141,7 @@
                   icon="mage:user-circle-fill"
                   class="text-gray-400 w-8 h-8"
                 />
-                {#if conversation.sms_preview.status === SmsStatus.Unread}
+                {#if conversation.sms_preview?.status === SmsStatus.Unread}
                   <span
                     class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full translate-x-1/2 -translate-y-1/2"
                   ></span>
@@ -144,16 +157,24 @@
                 {conversation.contact.name}
               </p>
               <p class="text-gray-400 text-xs line-clamp-2 min-h-[2.6em]">
-                <span
-                  class="bg-gray-400 dark:bg-zinc-700 px-1 py-0.5 mr-0.5 rounded-md text-white"
-                >
-                  {conversation.sms_preview.device}
-                </span>
-                {conversation.sms_preview.message}
+                {#if conversation.sms_preview}
+                  <span
+                    class="bg-gray-400 dark:bg-zinc-700 px-1 py-0.5 mr-0.5 rounded-md text-white"
+                  >
+                    {getSimCardDisplayName(conversation.sms_preview.sim_id)}
+                  </span>
+                  {conversation.sms_preview.message}
+                {:else}
+                  <span class="text-gray-500">新联系人</span>
+                {/if}
               </p>
 
               <p class="text-gray-400 text-xs">
-                {formatDate(conversation.sms_preview.timestamp)}
+                {#if conversation.sms_preview?.timestamp}
+                  {formatDate(conversation.sms_preview.timestamp)}
+                {:else}
+                  刚刚创建
+                {/if}
               </p>
             </div>
             {#if conversation.contact.new === true}
