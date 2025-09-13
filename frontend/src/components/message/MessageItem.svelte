@@ -22,7 +22,7 @@
         const cleanUrl = url.replace(/[（）]/g, "");
         formattedText = formattedText.replace(
           url,
-          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${cleanUrl}</a>`,
+          `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-gray-900 dark:text-gray-300 underline hover:text-gray-700 dark:hover:text-gray-400">${cleanUrl}</a>`,
         );
       });
     }
@@ -33,12 +33,12 @@
       const prefix = fullMatch.slice(0, fullMatch.lastIndexOf(code));
       formattedText = formattedText.replace(
         fullMatch,
-        `${prefix}<span class="inline-flex items-center justify-center gap-1 bg-gray-100/80 dark:bg-zinc-700/80 hover:bg-gray-200 dark:hover:bg-zinc-600 text-blue-600 dark:text-blue-400 transition-colors duration-200 cursor-pointer px-1.5 py-0.5 rounded mx-0.5" onclick="(function(event){
+        `${prefix}<span class="inline-flex items-center justify-center gap-1 bg-gray-300 dark:bg-zinc-600 hover:bg-gray-400 dark:hover:bg-zinc-500 text-gray-800 dark:text-gray-200 transition-colors duration-200 cursor-pointer px-1.5 py-0.5 rounded mx-0.5 font-medium" onclick="(function(event){
             event.preventDefault();
             event.stopPropagation();
             navigator.clipboard.writeText('${code}');
             const toast = document.createElement('div');
-            toast.className = 'fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-full text-sm opacity-0 transition-opacity duration-300';
+            toast.className = 'fixed bottom-24 left-1/2 transform -translate-x-1/2 bg-gray-800 dark:bg-zinc-700 text-gray-100 dark:text-gray-200 px-4 py-2 rounded-lg text-sm opacity-0 transition-opacity duration-300 shadow-lg';
             toast.textContent = '验证码已复制';
             document.body.appendChild(toast);
             requestAnimationFrame(() => toast.style.opacity = '1');
@@ -73,7 +73,7 @@
 </script>
 
 <div
-  class="flex mb-2 message-wrapper flex-row"
+  class="flex mb-3 message-wrapper flex-row"
   class:justify-end={message.send}
   class:justify-start={!message.send}
   in:slideDown={{ duration: 300 }}
@@ -85,27 +85,29 @@
       <div class="absolute top-1/2 -left-6 -translate-y-1/2 transform">
         {#if message.status === SmsStatus.Loading}
           <div
-            class="w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"
+            class="w-3 h-3 border-2 border-gray-300 dark:border-zinc-600 border-t-gray-600 dark:border-t-gray-400 rounded-full animate-spin"
           ></div>
         {:else if message.status === SmsStatus.Failed}
           <Icon
             icon="mage:information-circle-fill"
-            class="text-red-500 w-5 h-5"
+            class="text-red-500 dark:text-red-400 w-5 h-5"
           />
         {:else if message.status === SmsStatus.Read}
-          <div class="text-green-500 text-xs"></div>
+          <Icon
+            icon="carbon:checkmark-filled"
+            class="text-gray-500 dark:text-gray-400 w-4 h-4"
+          />
         {/if}
       </div>
     {/if}
 
     <div
-      class="relative px-4 py-2 text-sm rounded-lg
+      class="relative px-4 py-2.5 text-sm rounded-lg
       {message.send
-        ? 'bg-gray-700 text-white before:bg-gray-700'
-        : 'bg-gray-50 dark:bg-gray-800 before:bg-gray-100 before:dark:bg-gray-800'}
-      {message.send ? 'before:-right-1' : 'before:-left-1'}"
+        ? 'bg-gray-800 dark:bg-gray-300 text-gray-100 dark:text-gray-900'
+        : 'bg-gray-100 dark:bg-zinc-800 text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-zinc-700'}"
     >
-      <p class="whitespace-pre-wrap break-words overflow-hidden">
+      <p class="whitespace-pre-wrap break-words overflow-hidden leading-relaxed">
         {@html formatMessage(message.message)}
       </p>
     </div>
@@ -116,4 +118,5 @@
   .message-wrapper {
     will-change: height, transform, opacity;
   }
+
 </style>

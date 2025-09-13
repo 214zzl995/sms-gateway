@@ -119,18 +119,23 @@
 <Modal {isOpen} {onClose}>
     <!-- Modal Header -->
     <div
-        class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700"
+        class="flex justify-between items-center p-6 border-b border-gray-200 dark:border-zinc-700"
     >
-        <h2 class="text-xl font-bold text-gray-800 dark:text-gray-200">
-            SIM Card Information
-        </h2>
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-gray-900 dark:bg-gray-100 rounded-lg flex items-center justify-center">
+                <Icon icon="carbon:sim-card" class="w-4 h-4 text-gray-100 dark:text-gray-900" />
+            </div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100">
+                SIM Card Information
+            </h2>
+        </div>
         <button
-            class="text-stone-800 text-xl p-2 rounded-full bg-gray-200 dark:bg-gray-700
-                   transition-colors duration-500 hover:bg-gray-300 dark:hover:bg-gray-600
-                   hover:text-gray-800 dark:hover:text-gray-100 dark:text-gray-100"
+            class="p-2 rounded-lg bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400
+                   transition-colors duration-200 hover:bg-gray-200 dark:hover:bg-zinc-700
+                   hover:text-gray-800 dark:hover:text-gray-200"
             onclick={() => onClose()}
         >
-            <Icon icon="mage:multiply-square" width="20" height="20" />
+            <Icon icon="carbon:close" class="w-5 h-5" />
         </button>
     </div>
 
