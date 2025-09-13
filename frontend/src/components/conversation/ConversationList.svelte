@@ -87,21 +87,16 @@
     deleteConversation(conversation.contact.id);
     changeCurrentConversation($conversations[0]?.contact);
   }
-
-  // Get avatar with initials
-  function getInitials(name) {
-    return name.split(' ').map(word => word.charAt(0)).join('').toUpperCase().slice(0, 2);
-  }
 </script>
 
 <div class="flex flex-col h-full">
   <!-- Header with Search and New Message -->
   <div class="flex flex-col gap-3 mb-4">
     <div class="flex items-center justify-between">
-      <h2 class="text-base font-semibold text-gray-800 dark:text-gray-100">Messages</h2>
+      <h2 class="text-base font-semibold text-gray-800 dark:text-gray-200">Messages</h2>
       <button
-        class="p-2 rounded-lg bg-gray-800 dark:bg-gray-100 text-gray-100 dark:text-gray-900
-               hover:bg-gray-700 dark:hover:bg-gray-200 transition-all duration-200 active:scale-[0.95]"
+        class="p-2 rounded-lg bg-gray-800 dark:bg-gray-200 text-gray-100 dark:text-gray-900
+               hover:bg-gray-700 dark:hover:bg-gray-300 transition-all duration-200 active:scale-[0.95]"
         onclick={createNewMessage}
         title="New Message"
       >
@@ -179,12 +174,13 @@
                          ? 'bg-gray-100 dark:bg-zinc-800 border-gray-300 dark:border-zinc-600'
                          : 'border-transparent hover:bg-gray-50 dark:hover:bg-zinc-800/50'}"
               >
-                <!-- Avatar -->
+                <!-- Avatar with Icon -->
                 <div class="relative flex-shrink-0">
-                  <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-200 flex items-center justify-center">
-                    <span class="text-sm font-medium text-gray-100 dark:text-gray-800">
-                      {getInitials(conversation.contact.name)}
-                    </span>
+                  <div class="w-10 h-10 rounded-lg bg-gray-800 dark:bg-gray-300 flex items-center justify-center">
+                    <Icon 
+                      icon="carbon:user-avatar" 
+                      class="w-5 h-5 text-gray-200 dark:text-gray-700"
+                    />
                   </div>
                   
                   <!-- Unread indicator -->
@@ -201,7 +197,7 @@
                 <div class="flex-1 min-w-0">
                   <!-- Name and Time -->
                   <div class="flex items-center justify-between mb-1">
-                    <h3 class="font-medium text-sm text-gray-800 dark:text-gray-100 truncate pr-2">
+                    <h3 class="font-medium text-sm text-gray-800 dark:text-gray-200 truncate pr-2">
                       {conversation.contact.name}
                     </h3>
                     {#if !conversation.contact.new && conversation.sms_preview?.timestamp}
@@ -270,8 +266,8 @@
             {#if !searchTemporaryValue}
               <button
                 onclick={createNewMessage}
-                class="px-4 py-2 bg-gray-800 dark:bg-gray-100 text-gray-100 dark:text-gray-900
-                       hover:bg-gray-700 dark:hover:bg-gray-200 rounded-lg text-sm font-medium
+                class="px-4 py-2 bg-gray-800 dark:bg-gray-200 text-gray-100 dark:text-gray-900
+                       hover:bg-gray-700 dark:hover:bg-gray-300 rounded-lg text-sm font-medium
                        transition-all duration-200 flex items-center gap-2 active:scale-[0.95]"
               >
                 <Icon icon="carbon:add" class="w-4 h-4" />

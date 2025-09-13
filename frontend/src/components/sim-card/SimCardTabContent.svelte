@@ -106,44 +106,42 @@
     >
         <!-- SIM Card Header - Always visible -->
         <div class="flex justify-between items-center mb-6">
-            <div class="flex items-center space-x-3">
-                <div class="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-gray-900 dark:bg-gray-100 rounded-lg flex items-center justify-center">
                     <Icon
-                        icon="mage:memory-card-fill"
-                        class="w-6 h-6 text-blue-600 dark:text-blue-400"
+                        icon="carbon:sim-card"
+                        class="w-5 h-5 text-gray-100 dark:text-gray-900"
                     />
                 </div>
                 <div>
                     <h3
-                        class="text-lg font-semibold text-gray-800 dark:text-gray-200"
+                        class="text-lg font-semibold text-gray-800 dark:text-gray-100"
                     >
                         {getDisplayName(simCard)}
                     </h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                    <p class="text-sm text-gray-500 dark:text-gray-400 font-mono">
                         IMSI: {simCard.imsi}
                     </p>
                 </div>
             </div>
 
-            <div class="flex items-center space-x-2">
+            <div class="flex items-center gap-2">
                 <button
-                    class="p-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300
-                           hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors
-                           {isRefreshing ? 'cursor-not-allowed opacity-75' : ''}"
+                    class="p-2 rounded-lg bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-gray-400
+                           hover:bg-gray-200 dark:hover:bg-zinc-700 hover:text-gray-800 dark:hover:text-gray-200
+                           transition-colors duration-200 {isRefreshing ? 'cursor-not-allowed opacity-75' : ''}"
                     onclick={handleRefresh}
                     title="Refresh SIM info"
                     disabled={isRefreshing}
                 >
                     <Icon
-                        icon="mage:refresh"
-                        width="18"
-                        height="18"
-                        class={isRefreshing ? "animate-spin" : ""}
+                        icon="carbon:restart"
+                        class="w-4 h-4 {isRefreshing ? 'animate-spin' : ''}"
                     />
                 </button>
                 {#if simInfo?.model_info?.model}
                     <span
-                        class="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-sm font-medium rounded-full"
+                        class="px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-gray-100 dark:text-gray-900 text-xs font-medium rounded-lg"
                     >
                         {simInfo.model_info.model}
                     </span>
